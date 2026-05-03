@@ -1,0 +1,111 @@
+// ============================================
+// Gemini API Service
+// ============================================
+
+import type { GeminiRequest, GeminiResponse, SourceLanguage, Language } from '../types';
+import { GEMINI_API_URL, LANGUAGE_LABELS } from '../utils/constants';
+
+/**
+ * Call Gemini API for translation
+ */
+export async function callGeminiAPI(
+  text: string,
+  sourceLang: SourceLanguage,
+  targetLang: Language,
+  systemPrompt: string,
+  translationTemplate: string,
+  apiKey: string,
+  model: string = 'gemini-flash-latest'
+): Promise<string> {
+  if (!apiKey) {
+    throw new Error('API key chưa được cấu hình. Vui lòng vào Settings để nhập API key.');
+  }
+
+  if (!text.trim()) {
+    throw new Error('Vui lòng nhập text cần dịch.');
+  }
+
+  // Build the translation prompt from template
+  const sourceLangName = sourceLang === 'auto' ? 'the detected language' : LANGUAGE_LABELS[sourceLang];
+  const targetLangName = LANGUAGE_LABELS[targetLang];
+
+  const userPrompt = translationTemplate
+    .replace('{text}', text)
+    .replace('{source_lang}', sourceLangName)
+    .replace('{target_lang}', targetLangName);
+
+  const requestBody: GeminiRequest = {
+    system_instruction: {
+      parts: [{ text: systemPrompt }],
+    },
+    contents: [
+      {
+        parts: [{ text: userPrompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 8192,
+    },
+  };
+
+  const url = `${GEMINI_API_URL}/${model}:generateContent?key=${apiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    if (response.status === 400) {
+      throw new Error('API key không hợp lệ hoặc request bị lỗi.');
+    } else if (response.status === 429) {
+      throw new Error('Đã vượt quá giới hạn API. Vui lòng thử lại sau.');
+    } else if (response.status === 403) {
+      throw new Error('API key không có quyền truy cập. Kiểm tra lại key.');
+    }
+    throw new Error(
+      `Lỗi API: ${response.status} - ${errorData?.error?.message || response.statusText}`
+    );
+  }
+
+  const data: GeminiResponse = await response.json();
+
+  if (data.error) {
+    throw new Error(`Gemini error: ${data.error.message}`);
+  }
+
+  if (!data.candidates || data.candidates.length === 0) {
+    throw new Error('Không nhận được kết quả dịch từ AI.');
+  }
+
+  const translatedText = data.candidates[0].content.parts
+    .map((part) => part.text)
+    .join('');
+
+  return translatedText.trim();
+}
+
+/**
+ * Validate API key by making a simple test request
+ */
+export async function validateApiKey(apiKey: string, model: string = 'gemini-flash-latest'): Promise<boolean> {
+  try {
+    const url = `${GEMINI_API_URL}/${model}:generateContent?key=${apiKey}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Hello' }] }],
+        generationConfig: { maxOutputTokens: 10 },
+      }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
