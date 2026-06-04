@@ -31,6 +31,9 @@ function OptionsApp() {
   const [autoTranslate, setAutoTranslate] = useState(true);
   const [showBubble, setShowBubble] = useState(true);
   const [bubblePosition, setBubblePosition] = useState('below');
+  const [dictionaryMode, setDictionaryMode] = useState(true);
+  const [contextAware, setContextAware] = useState(true);
+  const [cacheEnabled, setCacheEnabled] = useState(true);
 
   useEffect(() => {
     loadSettings();
@@ -56,6 +59,9 @@ function OptionsApp() {
         setAutoTranslate(s.autoTranslateOnHighlight);
         setShowBubble(s.showTranslationBubble);
         setBubblePosition(s.bubblePosition);
+        setDictionaryMode(s.dictionaryModeEnabled !== false);
+        setContextAware(s.contextAwareEnabled !== false);
+        setCacheEnabled(s.cacheEnabled !== false);
       }
     } catch {
       console.log('Running outside extension context');
@@ -454,6 +460,60 @@ function OptionsApp() {
                 <option value="below">Bên dưới text</option>
                 <option value="above">Bên trên text</option>
               </select>
+            </div>
+
+            <div className="toggle-row" style={{ marginTop: '20px' }}>
+              <div className="toggle-info">
+                <span className="toggle-label">📖 Chế độ từ điển (1-2 từ)</span>
+                <span className="toggle-desc">Khi chọn 1-2 từ, hiển thị IPA, định nghĩa, ví dụ, synonyms thay vì chỉ dịch</span>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={dictionaryMode}
+                  onChange={(e) => {
+                    setDictionaryMode(e.target.checked);
+                    saveField({ dictionaryModeEnabled: e.target.checked });
+                  }}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <span className="toggle-label">🧠 Dịch theo ngữ cảnh</span>
+                <span className="toggle-desc">Gửi kèm câu văn xung quanh để AI dịch idiom/đại từ chuẩn hơn</span>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={contextAware}
+                  onChange={(e) => {
+                    setContextAware(e.target.checked);
+                    saveField({ contextAwareEnabled: e.target.checked });
+                  }}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <span className="toggle-label">⚡ Cache bản dịch (24h)</span>
+                <span className="toggle-desc">Lưu kết quả trong 24h, không gọi API lại cho cùng text — nhanh và tiết kiệm</span>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={cacheEnabled}
+                  onChange={(e) => {
+                    setCacheEnabled(e.target.checked);
+                    saveField({ cacheEnabled: e.target.checked });
+                  }}
+                />
+                <span className="toggle-slider"></span>
+              </label>
             </div>
           </div>
         );

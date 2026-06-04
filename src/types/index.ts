@@ -14,6 +14,8 @@ export interface TranslateRequest {
     sourceLang: SourceLanguage;
     targetLang: Language;
     customPrompt?: string;
+    context?: string;
+    dictionaryMode?: boolean;
   };
 }
 
@@ -36,7 +38,9 @@ export type MessageType =
   | 'GET_HISTORY'
   | 'CLEAR_HISTORY'
   | 'ANALYZE_IELTS'
-  | 'TRANSLATE_INPLACE';
+  | 'TRANSLATE_INPLACE'
+  | 'TOGGLE_PIN_HISTORY'
+  | 'DELETE_HISTORY_ITEM';
 
 export interface ChromeMessage {
   type: MessageType;
@@ -58,6 +62,7 @@ export interface TranslationHistoryItem {
   sourceLang: SourceLanguage;
   targetLang: Language;
   timestamp: number;
+  pinned?: boolean;
 }
 
 export interface AppSettings {
@@ -94,6 +99,13 @@ export interface AppSettings {
   autoTranslateOnHighlight: boolean;
   showTranslationBubble: boolean;
   bubblePosition: 'above' | 'below';
+  dictionaryModeEnabled: boolean;
+  contextAwareEnabled: boolean;
+  cacheEnabled: boolean;
+
+  // UI state
+  sidebarToggleY: number; // px from top, persisted icon position
+  sidebarWidth: number;   // px
 
   // Stats
   totalTranslations: number;

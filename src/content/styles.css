@@ -18,10 +18,29 @@
   border: 1px solid rgba(99, 102, 241, 0.3);
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.15);
-  min-width: 200px;
-  max-width: 420px;
+  min-width: 240px;
+  max-width: 460px;
+  max-height: 70vh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   animation: ai-translator-fadeIn 0.2s ease-out;
+}
+
+.ai-translator-bubble-body {
+  overflow-y: auto;
+  max-height: calc(70vh - 40px);
+}
+
+.ai-translator-bubble-body::-webkit-scrollbar {
+  width: 6px;
+}
+.ai-translator-bubble-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ai-translator-bubble-body::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 10px;
 }
 
 @keyframes ai-translator-fadeIn {
@@ -42,6 +61,27 @@
   padding: 8px 12px;
   background: rgba(99, 102, 241, 0.1);
   border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+  cursor: grab;
+  user-select: none;
+}
+
+.ai-translator-bubble-header:active {
+  cursor: grabbing;
+}
+
+.ai-translator-bubble-pin {
+  all: unset;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0.7;
+  transition: all 0.15s;
+}
+
+.ai-translator-bubble-pin:hover {
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.15);
 }
 
 .ai-translator-bubble-logo {
@@ -478,4 +518,157 @@
 #ai-translator-zen-overlay .zen-text strong {
   color: #fff;
   font-weight: 700;
+}
+
+/* ============================================
+   New: action bar, TTS, dictionary, search, pin
+   ============================================ */
+
+.ai-action-bar {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-action-bar button {
+  all: unset;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  transition: all 0.15s;
+  font-weight: 500;
+}
+
+.ai-action-bar button:hover {
+  background: rgba(99, 102, 241, 0.2);
+  transform: translateY(-1px);
+}
+
+.ai-lang-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ai-tts-btn {
+  all: unset;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px;
+  border-radius: 4px;
+  opacity: 0.7;
+  transition: all 0.15s;
+}
+
+.ai-tts-btn:hover {
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.ai-dict-content {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: #e2e8f0;
+}
+
+.ai-dict-content strong {
+  color: #a78bfa;
+  font-weight: 700;
+}
+
+.ai-dict-content em {
+  color: #94a3b8;
+}
+
+/* Sidebar search */
+.ai-translator-sidebar-search {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.ai-translator-sidebar-search input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #e2e8f0;
+  font-size: 13px;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.ai-translator-sidebar-search input:focus {
+  border-color: rgba(99, 102, 241, 0.6);
+}
+
+.ai-translator-sidebar-search input::placeholder {
+  color: #64748b;
+}
+
+/* History item actions (pin/delete in top-right) */
+.ai-translator-history-item {
+  position: relative;
+}
+
+.ai-translator-history-item.pinned {
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.06);
+}
+
+.ai-history-item-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.ai-translator-history-item:hover .ai-history-item-actions {
+  opacity: 1;
+}
+
+.ai-translator-history-item.pinned .ai-history-item-actions {
+  opacity: 1;
+}
+
+.ai-history-pin-btn,
+.ai-history-delete-btn {
+  all: unset;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(15, 15, 35, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.15s;
+}
+
+.ai-history-pin-btn:hover {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+.ai-history-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* Sidebar toggle: dragging state */
+#ai-translator-sidebar-toggle:active {
+  cursor: grabbing;
+  background: rgba(99, 102, 241, 1);
+}
+
+/* Sidebar resize handle hover hint */
+#ai-translator-sidebar-resize:hover {
+  background: rgba(99, 102, 241, 0.3);
 }
