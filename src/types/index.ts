@@ -143,6 +143,7 @@ export interface AppSettings {
   // Full-page translation
   pageTranslateMode: PageTranslateMode; // 'replace' | 'bilingual'
   pageTargetLang: Language;
+  pageAutoDomains: string[]; // hostnames (without leading www.) to auto-translate on load
 
   // UI state
   sidebarToggleY: number; // px from top, persisted icon position

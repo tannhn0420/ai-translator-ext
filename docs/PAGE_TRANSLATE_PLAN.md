@@ -71,8 +71,10 @@ và block đã là tiếng Việt (regex dấu) khi đích = vi.
 - **Phase 2 ✅ — Viewport-first + tốc độ cảm nhận:** `IntersectionObserver` dịch phần đang
   nhìn thấy trước, cuộn tới đâu dịch tới đó (tiết kiệm token); status pill busy/idle;
   pause/resume toggle 0-token (giữ snapshot gốc + dịch).
-- **Phase 3 (tiếp theo) — Động & per-site:** `MutationObserver` cho SPA/infinite-scroll,
-  auto-dịch nhớ theo domain, nút "Dừng".
+- **Phase 3 ✅ — Động & per-site:** `MutationObserver` (loop-safe) bắt nội dung SPA/
+  infinite-scroll để dịch tiếp, tự prune block bị detach khi SPA re-render; auto-dịch
+  nhớ theo domain (`pageAutoDomains` + toggle "Tự dịch site này" trong popup); nút "Dừng"
+  trong status pill (giữ nguyên phần đã dịch).
 
 ## Rủi ro & xử lý
 - AI hỏng token/JSON → fallback per-block/per-item. Không bao giờ vỡ trang.

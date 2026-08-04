@@ -40,6 +40,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   cacheEnabled: true,
   pageTranslateMode: 'replace',
   pageTargetLang: 'vi',
+  pageAutoDomains: [],
   sidebarToggleY: 0,    // 0 means use default (50%)
   sidebarWidth: 360,
   totalTranslations: 0,

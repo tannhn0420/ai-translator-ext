@@ -118,6 +118,41 @@ function initContentScript() {
 
   // Load settings on startup
   loadSettings();
+  maybeAutoTranslatePage();
+
+  /**
+   * Auto-translate the whole page on load if the current host is in the user's
+   * remembered auto-translate list (Phase 3, per-site). The MutationObserver in the
+   * page-translate controller then keeps up with any content that loads later.
+   */
+  async function maybeAutoTranslatePage() {
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+      const s = resp?.data;
+      if (!s) return;
+
+      const domains: string[] = s.pageAutoDomains || [];
+      const host = location.hostname.replace(/^www\./, '');
+      if (!domains.some((d) => d.replace(/^www\./, '') === host)) return;
+
+      let hasKey = !!s.apiKey; // gemini default
+      if (s.provider === 'groq') hasKey = !!s.groqApiKey;
+      else if (s.provider === 'openrouter') hasKey = !!s.openrouterApiKey;
+      if (!hasKey) return;
+
+      const mode: PageTranslateMode = s.pageTranslateMode === 'bilingual' ? 'bilingual' : 'replace';
+      const targetLang: Language = s.pageTargetLang === 'en' ? 'en' : 'vi';
+      const run = () => handleTranslatePage(mode, targetLang);
+
+      if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setTimeout(run, 800);
+      } else {
+        window.addEventListener('DOMContentLoaded', () => setTimeout(run, 800));
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   async function loadSettings() {
     try {

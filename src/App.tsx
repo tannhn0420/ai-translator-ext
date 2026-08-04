@@ -22,12 +22,51 @@ function App() {
   const [selectedPrompt, setSelectedPrompt] = useState('');
   const [autoTranslate, setAutoTranslate] = useState(true);
   const [pageMode, setPageMode] = useState<PageTranslateMode>('replace');
+  const [currentHost, setCurrentHost] = useState('');
+  const [autoSite, setAutoSite] = useState(false);
 
   // Load settings on mount
   useEffect(() => {
     loadSettings();
     loadPopupState();
+    loadAutoSite();
   }, []);
+
+  const loadAutoSite = async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      let host = '';
+      if (tab?.url) {
+        try {
+          host = new URL(tab.url).hostname.replace(/^www\./, '');
+        } catch {
+          // non-http URL (chrome://, file://…) — no host
+        }
+      }
+      setCurrentHost(host);
+      const resp = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+      const domains: string[] = resp?.data?.pageAutoDomains || [];
+      setAutoSite(!!host && domains.some((d) => d.replace(/^www\./, '') === host));
+    } catch {
+      // ignore
+    }
+  };
+
+  const toggleAutoSite = async () => {
+    if (!currentHost) return;
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+      const existing: string[] = (resp?.data?.pageAutoDomains || []).map((d: string) =>
+        d.replace(/^www\./, ''),
+      );
+      const isOn = existing.includes(currentHost);
+      const next = isOn ? existing.filter((d) => d !== currentHost) : [...existing, currentHost];
+      await chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { pageAutoDomains: next } });
+      setAutoSite(!isOn);
+    } catch {
+      // ignore
+    }
+  };
 
   const loadPopupState = async () => {
     try {
@@ -373,6 +412,18 @@ function App() {
           title="Chế độ hiển thị bản dịch trang"
         >
           {pageMode === 'replace' ? '🔁 Thay thế' : '📑 Song ngữ'}
+        </button>
+      </div>
+
+      {/* Auto-translate this site */}
+      <div className="quick-actions">
+        <button
+          className={`quick-action-btn ${autoSite ? 'active' : ''}`}
+          onClick={toggleAutoSite}
+          disabled={!currentHost}
+          title="Tự động dịch cả trang mỗi khi bạn mở site này (nhớ theo tên miền)"
+        >
+          {autoSite ? '🟢' : '⚪'} Tự dịch {currentHost ? currentHost : 'site này'}
         </button>
       </div>
 

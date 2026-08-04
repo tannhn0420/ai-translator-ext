@@ -1,11 +1,10 @@
 // ============================================
-// Page Translate — Controller (Phase 2: lazy, viewport-first)
+// Page Translate — Controller (Phase 3: lazy + dynamic + stoppable)
 // ============================================
-// Collects candidate blocks, then translates them lazily via an IntersectionObserver:
-// blocks in (or near) the viewport translate first, and more translate as the user
-// scrolls. This makes the page feel instant and avoids spending tokens on content the
-// user never scrolls to. A per-page snapshot of both original and translated DOM keeps
-// toggling (revert ↔ show) instant and free.
+// Collects candidate blocks and translates them lazily via an IntersectionObserver
+// (viewport-first, on-scroll). A MutationObserver picks up content added later by
+// SPAs / infinite scroll. A per-page snapshot of original + translated DOM makes
+// toggling (revert ↔ show) instant and free. Translation can be stopped mid-run.
 
 import { collectBlocks } from './segmenter';
 import { serializeBlock, applyTranslation } from './serialize';
@@ -34,19 +33,25 @@ const HARD_BLOCK_CHAR_CAP = 8000;
 const OBSERVER_ROOT_MARGIN = '800px 0px';
 /** Debounce window to coalesce scroll-triggered blocks into batches. */
 const FLUSH_DEBOUNCE_MS = 120;
+/** Debounce window to coalesce DOM mutations (SPA / infinite scroll). */
+const MUTATION_DEBOUNCE_MS = 300;
 
 // --- Per-page state ---
 let active = false; // page-translate mode engaged
 let showing = false; // translations currently displayed (vs reverted)
+let stopped = false; // translation halted by the user (no more auto-queueing)
 let displayMode: PageTranslateMode = 'replace';
 let currentLang: Language = 'vi';
 
 let observer: IntersectionObserver | null = null;
+let mutationObserver: MutationObserver | null = null;
 let candidates: HTMLElement[] = []; // all collected blocks
 const tracked = new Map<HTMLElement, TrackedBlock>(); // successfully translated blocks
 let queue: HTMLElement[] = []; // visible blocks awaiting a batch
+const pendingRoots = new Set<HTMLElement>(); // subtrees added by the page, awaiting scan
 
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let mutationTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 let pendingReflush = false;
 
@@ -86,6 +91,7 @@ function activate(mode: PageTranslateMode, targetLang: Language): void {
 
   active = true;
   showing = true;
+  stopped = false;
   displayMode = mode;
   currentLang = targetLang;
   candidates = blocks;
@@ -93,44 +99,30 @@ function activate(mode: PageTranslateMode, targetLang: Language): void {
   processedAny = false;
   errorShown = false;
 
-  observer = new IntersectionObserver(onIntersect, { rootMargin: OBSERVER_ROOT_MARGIN });
-  for (const el of candidates) observer.observe(el);
+  startObservers(candidates);
   setStatus('Đang dịch…', true);
 }
 
 /** Revert to original but keep the snapshot + candidate list for an instant resume. */
 function pause(): void {
-  observer?.disconnect();
-  observer = null;
-  queue = [];
-  if (flushTimer) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
+  stopObservers();
   for (const [el, t] of tracked) revertBlock(el, t);
   showing = false;
   setStatus('↩️ Đã khôi phục bản gốc', false);
 }
 
-/** Re-show existing translations and resume observing for on-scroll translation. */
+/** Re-show existing translations and resume observing for on-scroll / dynamic translation. */
 function resume(): void {
+  stopped = false;
   for (const [el, t] of tracked) reShowBlock(el, t);
-  observer = new IntersectionObserver(onIntersect, { rootMargin: OBSERVER_ROOT_MARGIN });
-  for (const el of candidates) {
-    if (!tracked.has(el) && el.isConnected) observer.observe(el);
-  }
+  startObservers(candidates.filter((el) => !tracked.has(el) && el.isConnected));
   showing = true;
   setStatus(`🌐 Đã dịch ${translatedCount} đoạn`, false);
 }
 
 /** Fully tear down (used before a fresh translation in a different mode/target). */
 function deactivate(): void {
-  observer?.disconnect();
-  observer = null;
-  if (flushTimer) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
+  stopObservers();
   for (const [el, t] of tracked) revertBlock(el, t);
   tracked.clear();
   candidates = [];
@@ -138,6 +130,39 @@ function deactivate(): void {
   active = false;
   showing = false;
   translatedCount = 0;
+}
+
+/** User pressed "Dừng": stop translating further, keep what's already applied. */
+function stopTranslation(): void {
+  stopped = true;
+  stopObservers();
+  setStatus(`⏹️ Đã dừng — đã dịch ${translatedCount} đoạn`, false);
+}
+
+function startObservers(toObserve: HTMLElement[]): void {
+  observer = new IntersectionObserver(onIntersect, { rootMargin: OBSERVER_ROOT_MARGIN });
+  for (const el of toObserve) observer.observe(el);
+
+  mutationObserver = new MutationObserver(onMutations);
+  const root = document.body || document.documentElement;
+  if (root) mutationObserver.observe(root, { childList: true, subtree: true });
+}
+
+function stopObservers(): void {
+  observer?.disconnect();
+  observer = null;
+  mutationObserver?.disconnect();
+  mutationObserver = null;
+  queue = [];
+  pendingRoots.clear();
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (mutationTimer) {
+    clearTimeout(mutationTimer);
+    mutationTimer = null;
+  }
 }
 
 // --- Observation → queue → batch ---
@@ -170,7 +195,7 @@ async function flushQueue(): Promise<void> {
   flushing = true;
 
   try {
-    while (queue.length > 0) {
+    while (queue.length > 0 && !stopped) {
       const take = queue.splice(0, queue.length);
       const entries: { el: HTMLElement; map: Node[] }[] = [];
       const items: BatchTranslateItem[] = [];
@@ -190,6 +215,7 @@ async function flushQueue(): Promise<void> {
 
       const batches = chunkItems(items);
       await runPool(batches, PAGE_TRANSLATE_CONCURRENCY, async (batch) => {
+        if (stopped) return;
         let data: Record<number, string> = {};
         try {
           const resp: BatchTranslateResponse = await chrome.runtime.sendMessage({
@@ -212,16 +238,63 @@ async function flushQueue(): Promise<void> {
     }
   } finally {
     flushing = false;
-    if (pendingReflush) {
+    if (pendingReflush && !stopped) {
       pendingReflush = false;
       scheduleFlush();
-    } else {
+    } else if (!stopped) {
       if (processedAny && translatedCount === 0 && !errorShown) {
         errorShown = true;
         setStatus('⚠️ Chưa dịch được đoạn nào — kiểm tra API key / hạn mức.', false);
       } else {
         setStatus(`🌐 Đã dịch ${translatedCount} đoạn`, false);
       }
+    }
+  }
+}
+
+// --- Dynamic content (SPA / infinite scroll) ---
+
+function onMutations(records: MutationRecord[]): void {
+  if (!active || !showing || stopped) return;
+  let added = false;
+  for (const rec of records) {
+    rec.addedNodes.forEach((node) => {
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const el = node as HTMLElement;
+      if (isOwnElement(el)) return; // ignore our own translated / UI nodes (loop guard)
+      pendingRoots.add(el);
+      added = true;
+    });
+  }
+  if (added) scheduleMutationScan();
+}
+
+function scheduleMutationScan(): void {
+  if (mutationTimer) return;
+  mutationTimer = setTimeout(() => {
+    mutationTimer = null;
+    processMutations();
+  }, MUTATION_DEBOUNCE_MS);
+}
+
+function processMutations(): void {
+  if (!active || !showing || stopped || !observer) return;
+
+  // Prune tracked blocks the page has since detached (SPA re-renders).
+  for (const [el] of tracked) {
+    if (!el.isConnected) tracked.delete(el);
+  }
+
+  const roots = Array.from(pendingRoots);
+  pendingRoots.clear();
+
+  for (const root of roots) {
+    if (!root.isConnected || isOwnElement(root)) continue;
+    const blocks = collectBlocks(currentLang, root);
+    for (const el of blocks) {
+      if (tracked.has(el)) continue;
+      candidates.push(el);
+      observer.observe(el);
     }
   }
 }
@@ -240,7 +313,9 @@ function applyToBlock(el: HTMLElement, map: Node[], translated: string, mode: Pa
     el.insertAdjacentElement('afterend', wrap);
     t.bilingualNode = wrap;
   } else {
+    // Mark BEFORE mutating so the MutationObserver ignores our own writes.
     t.original = Array.from(el.childNodes).map((n) => n.cloneNode(true));
+    el.setAttribute('data-ai-translated', '1');
     applyTranslation(el, translated, map);
     t.translatedNodes = Array.from(el.childNodes).map((n) => n.cloneNode(true));
   }
@@ -252,12 +327,12 @@ function applyToBlock(el: HTMLElement, map: Node[], translated: string, mode: Pa
 
 function reShowBlock(el: HTMLElement, t: TrackedBlock): void {
   if (!el.isConnected) return;
+  el.setAttribute('data-ai-translated', '1');
   if (t.bilingualNode) {
     el.insertAdjacentElement('afterend', t.bilingualNode);
   } else if (t.translatedNodes) {
     el.replaceChildren(...t.translatedNodes.map((n) => n.cloneNode(true)));
   }
-  el.setAttribute('data-ai-translated', '1');
 }
 
 function revertBlock(el: HTMLElement, t: TrackedBlock): void {
@@ -266,6 +341,16 @@ function revertBlock(el: HTMLElement, t: TrackedBlock): void {
     el.replaceChildren(...t.original.map((n) => n.cloneNode(true)));
   }
   el.removeAttribute('data-ai-translated');
+}
+
+// --- Own-node detection (MutationObserver loop guard) ---
+
+function isOwnElement(el: Element): boolean {
+  if (el.id && el.id.startsWith('ai-translator')) return true;
+  if (el.classList && el.classList.contains('ai-tr-bilingual')) return true;
+  if (el.hasAttribute && el.hasAttribute('data-ai-translated')) return true;
+  if (el.closest && el.closest('[data-ai-translated],[id^="ai-translator"],.ai-tr-bilingual')) return true;
+  return false;
 }
 
 // --- Batching helpers ---
@@ -327,9 +412,22 @@ function setStatus(message: string, busy: boolean): void {
     (document.body || document.documentElement).appendChild(statusEl);
   }
   statusEl.style.cssText = STATUS_BASE + 'opacity:1;';
+
+  const stopBtn = busy
+    ? '<button id="ai-translator-page-stop" style="all:unset;cursor:pointer;margin-left:4px;' +
+      'padding:2px 8px;border-radius:12px;background:rgba(239,68,68,0.9);color:#fff;font-size:12px;">⏹ Dừng</button>'
+    : '';
   statusEl.innerHTML = busy
-    ? `<div class="ai-translator-spinner" style="width:13px;height:13px;flex:0 0 auto;"></div><span>${escapeText(message)}</span>`
+    ? `<div class="ai-translator-spinner" style="width:13px;height:13px;flex:0 0 auto;"></div><span>${escapeText(message)}</span>${stopBtn}`
     : `<span>${escapeText(message)}</span>`;
+
+  if (busy) {
+    const btn = statusEl.querySelector('#ai-translator-page-stop');
+    btn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      stopTranslation();
+    });
+  }
 
   if (statusHideTimer) {
     clearTimeout(statusHideTimer);
