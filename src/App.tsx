@@ -3,7 +3,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
-import type { SourceLanguage, Language, TranslateResponse, AppSettings } from './types';
+import type { SourceLanguage, Language, TranslateResponse, AppSettings, PageTranslateMode } from './types';
 import { LANGUAGE_LABELS, PRESET_PROMPTS, MAX_TEXT_LENGTH } from './utils/constants';
 import './App.css';
 
@@ -21,6 +21,7 @@ function App() {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [selectedPrompt, setSelectedPrompt] = useState('');
   const [autoTranslate, setAutoTranslate] = useState(true);
+  const [pageMode, setPageMode] = useState<PageTranslateMode>('replace');
 
   // Load settings on mount
   useEffect(() => {
@@ -68,6 +69,7 @@ function App() {
         setSourceLang(settings.defaultSourceLang);
         setTargetLang(settings.defaultTargetLang);
         setAutoTranslate(settings.autoTranslateOnHighlight);
+        setPageMode(settings.pageTranslateMode || 'replace');
       }
     } catch {
       // Extension context may not be available during development
@@ -145,6 +147,32 @@ function App() {
       chrome.tabs.sendMessage(tab.id, { type: 'TRIGGER_ZEN_MODE' });
       window.close(); // close popup
     }
+  };
+
+  const translateFullPage = async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+      // Persist the chosen mode + target so the context-menu path uses the same.
+      chrome.runtime
+        .sendMessage({ type: 'SAVE_SETTINGS', payload: { pageTranslateMode: pageMode, pageTargetLang: targetLang } })
+        .catch(() => {});
+      chrome.tabs.sendMessage(tab.id, {
+        type: 'TRANSLATE_PAGE',
+        payload: { mode: pageMode, targetLang },
+      });
+      window.close();
+    } catch {
+      setError('Không thể dịch trang. Hãy reload tab rồi thử lại.');
+    }
+  };
+
+  const togglePageMode = () => {
+    const next: PageTranslateMode = pageMode === 'replace' ? 'bilingual' : 'replace';
+    setPageMode(next);
+    chrome.runtime
+      .sendMessage({ type: 'SAVE_SETTINGS', payload: { pageTranslateMode: next } })
+      .catch(() => {});
   };
 
   const handleClear = () => {
@@ -327,6 +355,25 @@ function App() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Full-page translation */}
+      <div className="quick-actions">
+        <button
+          className="quick-action-btn active"
+          onClick={translateFullPage}
+          disabled={!hasApiKey}
+          title="Dịch & thay thế toàn bộ text trên trang (giữ format). Bấm lại để khôi phục bản gốc."
+        >
+          🌐 Dịch cả trang → {targetLang === 'vi' ? 'VI' : 'EN'}
+        </button>
+        <button
+          className="quick-action-btn"
+          onClick={togglePageMode}
+          title="Chế độ hiển thị bản dịch trang"
+        >
+          {pageMode === 'replace' ? '🔁 Thay thế' : '📑 Song ngữ'}
+        </button>
       </div>
 
       {/* Prompt Select */}

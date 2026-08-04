@@ -3,7 +3,8 @@
 // ============================================
 // Injected into all web pages to enable highlight translation
 
-import type { TranslateResponse } from '../types';
+import type { TranslateResponse, PageTranslateMode, Language } from '../types';
+import { handleTranslatePage } from './pageTranslate/controller';
 
 // Avoid re-injection
 if (!(window as unknown as Record<string, boolean>).__AI_TRANSLATOR_INJECTED__) {
@@ -108,6 +109,10 @@ function initContentScript() {
       }
     } else if (message.type === 'TRIGGER_ZEN_MODE') {
       activateZenMode();
+    } else if (message.type === 'TRANSLATE_PAGE') {
+      const mode: PageTranslateMode = message.payload?.mode === 'bilingual' ? 'bilingual' : 'replace';
+      const targetLang: Language = message.payload?.targetLang === 'en' ? 'en' : 'vi';
+      handleTranslatePage(mode, targetLang);
     }
   });
 

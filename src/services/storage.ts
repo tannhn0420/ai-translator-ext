@@ -38,6 +38,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   dictionaryModeEnabled: true,
   contextAwareEnabled: true,
   cacheEnabled: true,
+  pageTranslateMode: 'replace',
+  pageTargetLang: 'vi',
   sidebarToggleY: 0,    // 0 means use default (50%)
   sidebarWidth: 360,
   totalTranslations: 0,

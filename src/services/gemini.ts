@@ -15,7 +15,8 @@ export async function callGeminiAPI(
   systemPrompt: string,
   translationTemplate: string,
   apiKey: string,
-  model: string = 'gemini-flash-latest'
+  model: string = 'gemini-flash-latest',
+  maxOutputTokens: number = 8192
 ): Promise<string> {
   if (!apiKey) {
     throw new Error('API key chưa được cấu hình. Vui lòng vào Settings để nhập API key.');
@@ -45,7 +46,7 @@ export async function callGeminiAPI(
     ],
     generationConfig: {
       temperature: 0.3,
-      maxOutputTokens: 8192,
+      maxOutputTokens,
     },
   };
 

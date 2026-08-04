@@ -127,6 +127,44 @@ Output format:
 Text to rewrite:
 {text}`;
 
+// ============================================
+// Full-page batch translation
+// ============================================
+
+/**
+ * Template for translating many page segments in a single API call.
+ * `{text}` is replaced with a JSON array of {i, text} items; `{target_lang}` with the target.
+ * Inline formatting is carried as <n>…</n> (formatted span) or <n/> (void) tokens that
+ * MUST survive the translation so the DOM can be rebuilt with formatting intact.
+ */
+export const PAGE_BATCH_TEMPLATE = `You are translating multiple text segments from a web page into {target_lang}.
+
+You will receive a JSON array of segments, each shaped {"i": <number>, "text": "<segment>"}.
+Some segments contain inline markup tokens: <0>…</0> marks a formatted span, and <1/> marks a void element (line break, image). These tokens map to real HTML elements and MUST be preserved.
+
+Rules:
+1. Translate the human-readable text of every segment into {target_lang} so it reads naturally to a native speaker. Match the source tone/register.
+2. Preserve EVERY token exactly: same numbers, same count, keep both the opening <n> and its closing </n>. You MAY reposition a token to wherever the matching words land in the translated word order, but never invent, drop, duplicate, or renumber tokens.
+3. Translate the text INSIDE a <n>…</n> pair too, keeping it attached to the same concept.
+4. Do NOT translate proper nouns, brand/product names, code identifiers, URLs, or text inside backticks. Keep numbers, dates, and punctuation.
+5. If a segment is already in {target_lang} or must not be translated, return it unchanged (still keep its tokens).
+
+Return ONLY a JSON object mapping each segment index (as a string key) to its translated text, e.g. {"0":"…","1":"…"}. No markdown, no code fences, no commentary.
+
+Segments:
+{text}`;
+
+/** Max number of blocks bundled into one batch API call (smaller = model drops fewer items). */
+export const PAGE_BATCH_MAX_ITEMS = 18;
+/** Soft cap on total source characters per batch (keeps requests + outputs within limits). */
+export const PAGE_BATCH_MAX_CHARS = 3000;
+/** How many batch requests may be in flight at once (rate-limit / 429 protection). */
+export const PAGE_TRANSLATE_CONCURRENCY = 3;
+/** Upper bound on blocks translated per page (runaway guard on huge documents). */
+export const PAGE_TRANSLATE_MAX_BLOCKS = 1500;
+/** Output token budget for batch calls (target language can be longer than source). */
+export const PAGE_BATCH_MAX_OUTPUT_TOKENS = 8192;
+
 export const PRESET_PROMPTS = [
   {
     id: 'accurate',
@@ -196,7 +234,9 @@ export const MAX_TEXT_LENGTH = 5000;
 
 // Cache settings
 export const TRANSLATION_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-export const MAX_CACHE_ENTRIES = 200;
+// Large enough that a full page's blocks survive eviction, so re-translating after
+// a reload mostly hits cache instead of paying tokens again.
+export const MAX_CACHE_ENTRIES = 1000;
 
 // Context-aware translation
 export const CONTEXT_MAX_CHARS = 500;

@@ -138,6 +138,21 @@
   }
 }
 
+/* Full-page bilingual translation block (inserted after the original) */
+.ai-tr-bilingual {
+  color: #4f46e5;
+  opacity: 0.92;
+  border-left: 2px solid rgba(99, 102, 241, 0.45);
+  padding-left: 8px;
+  margin: 2px 0 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-tr-bilingual {
+    color: #a5b4fc;
+  }
+}
+
 /* Result */
 .ai-translator-bubble-result {
   display: flex;

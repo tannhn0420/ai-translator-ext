@@ -32,6 +32,8 @@ export interface TranslateResponse {
 export type MessageType =
   | 'TRANSLATE_TEXT'
   | 'TRANSLATE_PAGE'
+  | 'TRANSLATE_BATCH'
+  | 'TOGGLE_PAGE_TRANSLATION'
   | 'GET_SETTINGS'
   | 'SAVE_SETTINGS'
   | 'VALIDATE_API_KEY'
@@ -45,6 +47,41 @@ export type MessageType =
 export interface ChromeMessage {
   type: MessageType;
   payload?: unknown;
+}
+
+// Full-page translation display modes
+export type PageTranslateMode = 'replace' | 'bilingual';
+
+// Batch translation (full-page): translate many blocks in one API round-trip.
+export interface BatchTranslateItem {
+  /** Stable index used to map the response back to the source block. */
+  i: number;
+  /** Serialized block text, with inline elements encoded as <n>…</n> / <n/> tokens. */
+  text: string;
+}
+
+export interface BatchTranslateRequest {
+  type: 'TRANSLATE_BATCH';
+  payload: {
+    items: BatchTranslateItem[];
+    targetLang: Language;
+  };
+}
+
+export interface BatchTranslateResponse {
+  success: boolean;
+  /** Map of item index -> translated text. Missing keys = that item failed (keep original). */
+  data?: Record<number, string>;
+  error?: string;
+}
+
+// Message sent from popup/context-menu to a tab's content script.
+export interface TranslatePageMessage {
+  type: 'TRANSLATE_PAGE';
+  payload: {
+    mode: PageTranslateMode;
+    targetLang: Language;
+  };
 }
 
 // Settings / Storage
@@ -102,6 +139,10 @@ export interface AppSettings {
   dictionaryModeEnabled: boolean;
   contextAwareEnabled: boolean;
   cacheEnabled: boolean;
+
+  // Full-page translation
+  pageTranslateMode: PageTranslateMode; // 'replace' | 'bilingual'
+  pageTargetLang: Language;
 
   // UI state
   sidebarToggleY: number; // px from top, persisted icon position

@@ -2,7 +2,16 @@
 // Background Service Worker
 // ============================================
 
-import type { ChromeMessage, TranslateRequest, TranslateResponse, TranslationHistoryItem } from '../types';
+import type {
+  ChromeMessage,
+  TranslateRequest,
+  TranslateResponse,
+  TranslationHistoryItem,
+  BatchTranslateRequest,
+  BatchTranslateResponse,
+  BatchTranslateItem,
+  Language,
+} from '../types';
 import {
   getSettings,
   saveSettings,
@@ -26,6 +35,8 @@ import {
   DICTIONARY_TEMPLATE,
   DICTIONARY_MAX_WORDS,
   CONTEXT_MAX_CHARS,
+  PAGE_BATCH_TEMPLATE,
+  PAGE_BATCH_MAX_OUTPUT_TOKENS,
 } from '../utils/constants';
 
 // Listen for messages from popup, options, and content scripts
@@ -87,6 +98,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
     case 'TRANSLATE_INPLACE':
       return await handleInplaceTranslate(message as any);
 
+    case 'TRANSLATE_BATCH':
+      return await handleTranslateBatch(message as BatchTranslateRequest);
+
     default:
       return { success: false, error: 'Unknown message type' };
   }
@@ -120,11 +134,12 @@ async function callProvider(
   targetLang: 'en' | 'vi',
   systemPrompt: string,
   template: string,
+  maxTokens?: number,
 ): Promise<string> {
   if (p.id === 'gemini') {
-    return await callGeminiAPI(text, sourceLang, targetLang, systemPrompt, template, p.key, p.model);
+    return await callGeminiAPI(text, sourceLang, targetLang, systemPrompt, template, p.key, p.model, maxTokens ?? 8192);
   }
-  return await callOpenAIAPI(text, sourceLang, targetLang, systemPrompt, template, p.key, p.model, p.baseUrl);
+  return await callOpenAIAPI(text, sourceLang, targetLang, systemPrompt, template, p.key, p.model, p.baseUrl, maxTokens);
 }
 
 async function handleTranslate(request: TranslateRequest): Promise<TranslateResponse> {
@@ -298,20 +313,217 @@ async function handleInplaceTranslate(request: any): Promise<any> {
   }
 }
 
-// Context menu for right-click translate
+// ============================================
+// Full-page batch translation
+// ============================================
+
+const RATE_LIMIT_RE = /429|quota|rate.?limit|giới hạn|resource.?exhausted/i;
+
+/**
+ * Minimal non-blocking spacing between request starts. Unlike a hard per-minute
+ * gate, this never stalls long enough for the MV3 worker to be recycled mid-run;
+ * bursts are absorbed by per-request retry-on-429 below.
+ */
+let nextRequestAt = 0;
+async function pace(): Promise<void> {
+  const now = Date.now();
+  const wait = Math.max(0, nextRequestAt - now);
+  nextRequestAt = Math.max(now, nextRequestAt) + 150;
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+}
+
+/**
+ * Extract a JSON value from a model response that may be wrapped in prose or code fences.
+ */
+function extractJson(raw: string): unknown {
+  let s = raw.trim();
+  s = s.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+  try {
+    return JSON.parse(s);
+  } catch {
+    // Fall through to brace/bracket slicing
+  }
+  const firstObj = s.indexOf('{');
+  const lastObj = s.lastIndexOf('}');
+  const firstArr = s.indexOf('[');
+  const lastArr = s.lastIndexOf(']');
+  const candidates: string[] = [];
+  if (firstArr !== -1 && lastArr > firstArr) candidates.push(s.slice(firstArr, lastArr + 1));
+  if (firstObj !== -1 && lastObj > firstObj) candidates.push(s.slice(firstObj, lastObj + 1));
+  for (const c of candidates) {
+    try {
+      return JSON.parse(c);
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
+}
+
+/** Parse a batch response into an index -> translation map. */
+function mapBatchResponse(parsed: unknown, items: BatchTranslateItem[]): Record<number, string> {
+  const out: Record<number, string> = {};
+  if (!parsed || typeof parsed !== 'object') return out;
+
+  if (Array.isArray(parsed)) {
+    parsed.forEach((entry, k) => {
+      if (entry && typeof entry === 'object' && 'i' in entry) {
+        const e = entry as { i: number; text?: unknown };
+        if (typeof e.text === 'string' && e.text.length) out[Number(e.i)] = e.text;
+      } else if (typeof entry === 'string' && entry.length && items[k]) {
+        out[items[k].i] = entry;
+      }
+    });
+  } else {
+    const mp = parsed as Record<string, unknown>;
+    for (const it of items) {
+      const v = mp[String(it.i)];
+      if (typeof v === 'string' && v.length) out[it.i] = v;
+    }
+  }
+  return out;
+}
+
+/**
+ * One provider round-trip for a set of items. Retries on rate-limit (429/quota)
+ * errors with backoff, then falls back through the provider chain. Returns whatever
+ * subset of translations came back (partial results are fine — the caller recovers
+ * the rest).
+ */
+async function translateBatchItems(
+  items: BatchTranslateItem[],
+  targetLang: 'en' | 'vi',
+  systemPrompt: string,
+  providers: ProviderEntry[],
+): Promise<{ map: Record<number, string>; model: string }> {
+  const payloadText = JSON.stringify(items.map((it) => ({ i: it.i, text: it.text })));
+  let raw = '';
+  let usedModel = providers[0]?.model || 'unknown';
+
+  outer: for (const p of providers) {
+    if (!p.key) continue;
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        await pace();
+        raw = await callProvider(
+          p,
+          payloadText,
+          'auto',
+          targetLang,
+          systemPrompt,
+          PAGE_BATCH_TEMPLATE,
+          PAGE_BATCH_MAX_OUTPUT_TOKENS,
+        );
+        usedModel = p.model;
+        break outer;
+      } catch (err) {
+        const msg = (err as Error).message || '';
+        if (RATE_LIMIT_RE.test(msg) && attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+          continue; // retry same provider after backoff
+        }
+        break; // non-rate error → move to next provider
+      }
+    }
+  }
+
+  return { map: raw ? mapBatchResponse(extractJson(raw), items) : {}, model: usedModel };
+}
+
+async function handleTranslateBatch(request: BatchTranslateRequest): Promise<BatchTranslateResponse> {
+  const settings = await getSettings();
+  const { items, targetLang } = request.payload;
+  if (!items || items.length === 0) return { success: true, data: {} };
+
+  const providers = buildProviderList(settings);
+  if (!providers.some((p) => p.key)) {
+    return { success: false, data: {}, error: 'Chưa cấu hình API Key hoặc Provider không hợp lệ.' };
+  }
+
+  const result: Record<number, string> = {};
+  const activeModel = providers[0]?.model || 'unknown';
+
+  // 1. Per-item cache lookup — only send cache misses to the API.
+  const uncached: BatchTranslateItem[] = [];
+  if (settings.cacheEnabled) {
+    for (const it of items) {
+      const cached = await getCachedTranslation(makeCacheKey(it.text, targetLang, activeModel, 'page'));
+      if (cached != null) result[it.i] = cached;
+      else uncached.push(it);
+    }
+  } else {
+    uncached.push(...items);
+  }
+  if (uncached.length === 0) return { success: true, data: result };
+
+  const commit = async (subset: BatchTranslateItem[], map: Record<number, string>, model: string) => {
+    for (const it of subset) {
+      const v = map[it.i];
+      if (typeof v === 'string' && v.length) {
+        result[it.i] = v;
+        if (settings.cacheEnabled) {
+          await setCachedTranslation(makeCacheKey(it.text, targetLang, model, 'page'), v);
+        }
+      }
+    }
+  };
+
+  // 2. First pass over the whole (uncached) batch.
+  const first = await translateBatchItems(uncached, targetLang, settings.systemPrompt, providers);
+  await commit(uncached, first.map, first.model);
+
+  // 3. Recover items the model dropped/truncated by retrying them in smaller halves.
+  const pending = uncached.filter((it) => result[it.i] === undefined);
+  if (pending.length > 0) {
+    const mid = Math.ceil(pending.length / 2);
+    const subs = pending.length > 1 ? [pending.slice(0, mid), pending.slice(mid)] : [pending];
+    for (const sub of subs) {
+      if (sub.length === 0) continue;
+      const retry = await translateBatchItems(sub, targetLang, settings.systemPrompt, providers);
+      await commit(sub, retry.map, retry.model);
+    }
+  }
+
+  await incrementStats();
+  return { success: true, data: result };
+}
+
+// ============================================
+// Context menus
+// ============================================
+
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: 'translate-selection',
-    title: '🌐 Dịch với AI Translator',
-    contexts: ['selection'],
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'translate-selection',
+      title: '🌐 Dịch với AI Translator',
+      contexts: ['selection'],
+    });
+    chrome.contextMenus.create({
+      id: 'translate-page',
+      title: '🌐 Dịch / khôi phục toàn trang',
+      contexts: ['page'],
+    });
   });
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === 'translate-selection' && info.selectionText && tab?.id) {
+  if (!tab?.id) return;
+
+  if (info.menuItemId === 'translate-selection' && info.selectionText) {
     chrome.tabs.sendMessage(tab.id, {
       type: 'TRANSLATE_SELECTION',
       payload: { text: info.selectionText },
+    });
+  } else if (info.menuItemId === 'translate-page') {
+    const settings = await getSettings();
+    chrome.tabs.sendMessage(tab.id, {
+      type: 'TRANSLATE_PAGE',
+      payload: {
+        mode: settings.pageTranslateMode || 'replace',
+        targetLang: (settings.pageTargetLang || 'vi') as Language,
+      },
     });
   }
 });

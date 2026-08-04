@@ -16,7 +16,8 @@ export async function callOpenAIAPI(
   translationTemplate: string,
   apiKey: string,
   model: string = 'gpt-4o-mini',
-  baseUrl: string = 'https://api.openai.com/v1'
+  baseUrl: string = 'https://api.openai.com/v1',
+  maxTokens?: number
 ): Promise<string> {
   if (!apiKey) {
     throw new Error('OpenAI API key chưa được cấu hình. Vui lòng vào Settings để nhập API key.');
@@ -47,6 +48,7 @@ export async function callOpenAIAPI(
         { role: 'user', content: userPrompt }
       ],
       temperature: 0.3,
+      ...(maxTokens ? { max_tokens: maxTokens } : {}),
     }),
   });
 
