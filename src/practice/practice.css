@@ -230,6 +230,26 @@ body {
   .pr-dash-stats { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* Weak words ("từ hay sai") loop */
+.pr-dash-weak { padding: 8px 14px 16px; }
+.pr-weak-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
+.pr-weak-chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 13px;
+}
+.pr-weak-chip b { color: #fecaca; }
+[data-theme="light"] .pr-weak-chip {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #b91c1c;
+}
+[data-theme="light"] .pr-weak-chip b { color: #991b1b; }
+.pr-weak-drill { width: 100%; }
+
 /* Daily challenge banner */
 .pr-daily {
   display: flex;

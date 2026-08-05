@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PracticePack, DialogueLine, Language, SpeakingAssessment, VocabCard, DrillPack, PracticeVocab } from '../types';
-import { isSpeechRecognitionSupported, recognizeOnce, scoreSpeech, type SpeechScore, type RecognitionHandle } from './speech';
+import { isSpeechRecognitionSupported, recognizeOnce, scoreSpeech, type SpeechScore, type ScoredToken, type RecognitionHandle } from './speech';
 import { cachedImage, loadImage } from './images';
 
 const TOPIC_SUGGESTIONS = ['Nhà hàng', 'Sân bay', 'Phỏng vấn xin việc', 'Khách sạn', 'Mua sắm', 'Cuộc họp', 'Du lịch', 'Đi khám bệnh'];
@@ -82,6 +82,26 @@ function pickDeckWords(deck: VocabCard[], source: string): { words: string[]; la
   return { words, label };
 }
 
+// Common function words that aren't worth drilling even when missed.
+const WEAK_STOPWORDS = new Set([
+  'the', 'and', 'are', 'was', 'were', 'been', 'being', 'for', 'with', 'that', 'this',
+  'you', 'your', 'his', 'her', 'she', 'him', 'they', 'them', 'their', 'our', 'its',
+  'not', 'but', 'can', 'will', 'would', 'could', 'should', 'have', 'has', 'had',
+  'from', 'then', 'than', 'too', 'very', 'about', 'into', 'out', 'off', 'get', 'got',
+  'there', 'here', 'what', 'when', 'where', 'who', 'how', 'which',
+]);
+
+interface WeakWord { misses: number; attempts: number; last: string }
+type WeakWordMap = Record<string, WeakWord>;
+
+/** Weak words ranked by miss count then miss rate. Only those missed at least once. */
+function rankWeakWords(map: WeakWordMap): Array<{ word: string; misses: number; attempts: number }> {
+  return Object.entries(map)
+    .map(([word, v]) => ({ word, misses: v.misses, attempts: v.attempts }))
+    .filter((w) => w.misses > 0)
+    .sort((a, b) => b.misses - a.misses || b.misses / b.attempts - a.misses / a.attempts);
+}
+
 async function persistPack(key: string, pack: PracticePack, lv: string) {
   try {
     const r = await chrome.storage.local.get({ practicePacks: {} });
@@ -116,6 +136,7 @@ export default function PracticeApp() {
   const [ieltsOpen, setIeltsOpen] = useState(false);
   const [drillOpen, setDrillOpen] = useState(false);
   const [autoImg, setAutoImg] = useState(true); // auto-load illustrations for vocab
+  const [weakWords, setWeakWords] = useState<WeakWordMap>({}); // words most often missed in speaking/dictation
 
   // Cache of generated packs (instant, token-free topic switching)
   const packCacheRef = useRef<Map<string, PracticePack>>(new Map());
@@ -159,6 +180,10 @@ export default function PracticeApp() {
         setDaysData((r.practiceDays || {}) as Record<string, { attempts: number; sumScore: number }>);
       } catch { /* ignore */ }
       try {
+        const r = await chrome.storage.local.get({ weakWords: {} });
+        setWeakWords((r.weakWords || {}) as WeakWordMap);
+      } catch { /* ignore */ }
+      try {
         const r = await chrome.storage.local.get({ practicePacks: {} });
         const saved = (r.practicePacks || {}) as Record<string, { pack: PracticePack; level: string; at: number }>;
         const entries = Object.entries(saved).sort((a, b) => b[1].at - a[1].at);
@@ -193,7 +218,24 @@ export default function PracticeApp() {
     window.speechSynthesis.speak(u);
   }
 
-  async function recordScore(score: number) {
+  function recordWeakWords(tokens: ScoredToken[]) {
+    const meaningful = tokens.filter((t) => t.w.length >= 3 && !WEAK_STOPWORDS.has(t.w));
+    if (!meaningful.length) return;
+    setWeakWords((prev) => {
+      const next: WeakWordMap = { ...prev };
+      const today = todayStr();
+      for (const t of meaningful) {
+        const cur = next[t.w] || { misses: 0, attempts: 0, last: '' };
+        next[t.w] = { misses: cur.misses + (t.ok ? 0 : 1), attempts: cur.attempts + 1, last: today };
+      }
+      chrome.storage.local.set({ weakWords: next }).catch(() => {});
+      return next;
+    });
+  }
+
+  async function recordScore(sc: SpeechScore) {
+    const score = sc.score;
+    recordWeakWords(sc.tokens);
     setStats((prev) => {
       const today = new Date().toISOString().slice(0, 10);
       const next: PracticeStats = { ...prev, attempts: prev.attempts + 1, sumScore: prev.sumScore + score };
@@ -262,6 +304,14 @@ export default function PracticeApp() {
     const next = !autoImg;
     setAutoImg(next);
     chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { vocabAutoImage: next } }).catch(() => {});
+  }
+
+  /** Generate a fresh pack built around the words the user misses most, then close the dashboard. */
+  function drillWeakWords() {
+    const words = rankWeakWords(weakWords).slice(0, 12).map((w) => w.word);
+    if (!words.length) return;
+    setDashOpen(false);
+    void generate('Từ hay sai của tôi', words);
   }
 
   async function generate(t?: string, words?: string[]) {
@@ -497,7 +547,7 @@ export default function PracticeApp() {
       )}
 
       {dashOpen && (
-        <Dashboard stats={stats} daysData={daysData} dailyStats={dailyStats} onExit={() => setDashOpen(false)} />
+        <Dashboard stats={stats} daysData={daysData} dailyStats={dailyStats} weak={rankWeakWords(weakWords)} onDrill={drillWeakWords} onExit={() => setDashOpen(false)} />
       )}
 
       {!chatOpen && !ieltsOpen && !drillOpen && !dashOpen && pack && (
@@ -890,7 +940,7 @@ function DictationMode({
 }: {
   segments: { en: string; vi: string; speaker?: string }[];
   speak: (text: string, lang?: Language, onEnd?: () => void, rate?: number) => void;
-  onScore: (score: number) => void;
+  onScore: (sc: SpeechScore) => void;
   onExit: () => void;
 }) {
   const [idx, setIdx] = useState(0);
@@ -911,7 +961,7 @@ function DictationMode({
     const sc = scoreSpeech(seg.en, input);
     setScore(sc);
     setScores((s) => [...s, sc.score]);
-    onScore(sc.score);
+    onScore(sc);
   }
   function next() { setInput(''); setScore(null); setIdx((i) => i + 1); }
   function retry() { setInput(''); setScore(null); }
@@ -998,7 +1048,7 @@ function PracticeLine({
   vi: string;
   speaker?: string;
   onSpeak: (text: string, lang?: Language) => void;
-  onScore: (score: number) => void;
+  onScore: (sc: SpeechScore) => void;
 }) {
   const [recognizing, setRecognizing] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -1022,7 +1072,7 @@ function PracticeLine({
       const said = await promise;
       const sc = scoreSpeech(en, said);
       setScore(sc);
-      onScore(sc.score);
+      onScore(sc);
     } catch {
       setTranscript('(không nghe được — kiểm tra quyền micro)');
     }
@@ -1032,7 +1082,7 @@ function PracticeLine({
   function checkDictation() {
     const sc = scoreSpeech(en, dictInput);
     setDictScore(sc);
-    onScore(sc.score);
+    onScore(sc);
   }
 
   const shown = score || dictScore;
@@ -1097,7 +1147,7 @@ function RolePlay({
 }: {
   dialogue: DialogueLine[];
   speak: (text: string, lang?: Language, onEnd?: () => void) => void;
-  onScore: (score: number) => void;
+  onScore: (sc: SpeechScore) => void;
   onExit: () => void;
 }) {
   const speakers = useMemo(() => Array.from(new Set(dialogue.map((d) => d.speaker))), [dialogue]);
@@ -1151,7 +1201,7 @@ function RolePlay({
       const sc = scoreSpeech(line.en, said);
       setScore(sc);
       setScores((s) => [...s, sc.score]);
-      onScore(sc.score);
+      onScore(sc);
     } catch {
       if (mounted.current) setTranscript('(không nghe được — kiểm tra quyền micro)');
     }
@@ -1291,7 +1341,7 @@ const DRILL_SOUNDS: { key: string; label: string }[] = [
   { key: 'v versus w (vine/wine, vest/west)', label: 'v vs w' },
 ];
 
-function WordSpeak({ word, speak, onScore }: { word: string; speak: (t: string, l?: Language) => void; onScore: (n: number) => void }) {
+function WordSpeak({ word, speak, onScore }: { word: string; speak: (t: string, l?: Language) => void; onScore: (sc: SpeechScore) => void }) {
   const [recognizing, setRecognizing] = useState(false);
   const [score, setScore] = useState<number | null>(null);
 
@@ -1304,7 +1354,7 @@ function WordSpeak({ word, speak, onScore }: { word: string; speak: (t: string, 
       const said = await promise;
       const sc = scoreSpeech(word, said);
       setScore(sc.score);
-      onScore(sc.score);
+      onScore(sc);
     } catch {
       /* ignore */
     }
@@ -1327,7 +1377,7 @@ function DrillMode({
   onExit,
 }: {
   speak: (text: string, lang?: Language) => void;
-  onScore: (score: number) => void;
+  onScore: (sc: SpeechScore) => void;
   onExit: () => void;
 }) {
   const [sound, setSound] = useState('');
@@ -1467,11 +1517,15 @@ function Dashboard({
   stats,
   daysData,
   dailyStats,
+  weak,
+  onDrill,
   onExit,
 }: {
   stats: PracticeStats;
   daysData: Record<string, { attempts: number; sumScore: number }>;
   dailyStats: { lastDone: string; streak: number };
+  weak: Array<{ word: string; misses: number; attempts: number }>;
+  onDrill: () => void;
   onExit: () => void;
 }) {
   const days = lastNDates(14);
@@ -1508,6 +1562,22 @@ function Dashboard({
           );
         })}
       </div>
+
+      {weak.length > 0 && (
+        <div className="pr-dash-weak">
+          <div className="pr-dash-chart-title">🎯 Từ hay đọc/nghe sai ({weak.length})</div>
+          <div className="pr-weak-list">
+            {weak.slice(0, 15).map((w) => (
+              <span className="pr-weak-chip" key={w.word} title={`Sai ${w.misses}/${w.attempts} lần`}>
+                {w.word} <b>×{w.misses}</b>
+              </span>
+            ))}
+          </div>
+          <button className="pr-generate pr-weak-drill" onClick={onDrill}>
+            🎯 Luyện lại {Math.min(weak.length, 12)} từ hay sai
+          </button>
+        </div>
+      )}
 
       {stats.attempts === 0 && (
         <div className="pr-empty" style={{ padding: '20px' }}>Chưa có dữ liệu — hãy luyện vài câu để xem tiến độ!</div>
