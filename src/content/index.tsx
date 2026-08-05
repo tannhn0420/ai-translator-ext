@@ -609,15 +609,18 @@ function initContentScript() {
         <div class="ai-action-bar">
           <button class="ai-inline-bi-btn" title="Chèn bản dịch song ngữ vào đoạn trên trang">📑 Song ngữ</button>
           <button class="ai-inline-rep-btn" title="Ghi đè đoạn bằng bản dịch (giữ format)">✍️ Ghi đè</button>
+          <button class="ai-grammar-btn" data-text="${escapeHtml(enText)}" title="Giải thích ngữ pháp bằng tiếng Việt">🔎 Ngữ pháp</button>
           <button class="ai-ielts-btn" data-text="${escapeHtml(enText)}" title="Rewrite to IELTS 8.0">🎓 IELTS</button>
           <button class="ai-vocab-save-btn" title="Lưu vào sổ từ vựng">📇 Lưu</button>
         </div>
+        <div class="ai-grammar-result" style="display: none;"></div>
         <div class="ai-ielts-result" style="display: none;"></div>
       </div>
     `;
 
     wireActionBar(body);
     wireIeltsButton(body);
+    wireGrammarButton(body);
     wireInlineTranslate(body);
     attachVocabSave(body, {
       term: originalText,
@@ -793,6 +796,38 @@ function initContentScript() {
           type: 'ANALYZE_IELTS',
           payload: { text: textToAnalyze }
         });
+        if (res?.success && res.data) {
+          resultDiv.innerHTML = `<div class="ai-ielts-content">${renderMarkdown(res.data.text)}</div>`;
+        } else {
+          resultDiv.innerHTML = `<div class="ai-translator-bubble-error">⚠️ ${res?.error || 'Phân tích thất bại'}</div>`;
+        }
+      } catch {
+        resultDiv.innerHTML = '<div class="ai-translator-bubble-error">⚠️ Lỗi kết nối</div>';
+      }
+    });
+  }
+
+  function wireGrammarButton(scope: HTMLElement) {
+    const btn = scope.querySelector('.ai-grammar-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async (e) => {
+      const b = e.currentTarget as HTMLButtonElement;
+      const text = b.getAttribute('data-text') || '';
+      const resultDiv = b
+        .closest('.ai-translator-bubble-result-container')
+        ?.querySelector('.ai-grammar-result') as HTMLElement | null;
+      if (!resultDiv) return;
+
+      if (resultDiv.style.display === 'block') {
+        resultDiv.style.display = 'none';
+        return;
+      }
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML =
+        '<div class="ai-translator-spinner" style="margin: 10px auto;"></div><div style="text-align:center;font-size:12px;color:#94a3b8;">Đang phân tích ngữ pháp...</div>';
+
+      try {
+        const res = await chrome.runtime.sendMessage({ type: 'EXPLAIN_GRAMMAR', payload: { text } });
         if (res?.success && res.data) {
           resultDiv.innerHTML = `<div class="ai-ielts-content">${renderMarkdown(res.data.text)}</div>`;
         } else {

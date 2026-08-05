@@ -128,6 +128,34 @@ Text to rewrite:
 {text}`;
 
 // ============================================
+// Grammar explanation (for a selected English sentence)
+// ============================================
+
+export const GRAMMAR_SYSTEM_PROMPT = `You are a patient, precise English teacher explaining English grammar to a Vietnamese learner. Explain clearly and ACCURATELY, entirely in Vietnamese. Be concise but complete, and never invent grammar rules. Focus on what actually helps the learner understand and reuse the structure.`;
+
+export const GRAMMAR_TEMPLATE = `Giải thích ngữ pháp của câu/đoạn tiếng Anh dưới đây cho người Việt đang học tiếng Anh. Trả lời HOÀN TOÀN bằng tiếng Việt, ngắn gọn, dùng markdown. Bỏ qua mục nào không áp dụng.
+
+**🔤 Dịch nghĩa**
+<dịch tự nhiên sang tiếng Việt>
+
+**⏳ Thì & cấu trúc chính**
+- <thì gì + dấu hiệu nhận biết + công thức ngắn gọn>
+
+**🧩 Phân tích câu**
+- <chủ ngữ / động từ / tân ngữ / mệnh đề — chỉ nêu điểm đáng chú ý>
+
+**💡 Điểm ngữ pháp cần lưu ý**
+- <mạo từ, giới từ, mệnh đề quan hệ, bị động, câu điều kiện, so sánh… nếu có>
+
+**📌 Từ / cụm đáng chú ý**
+- <từ vựng, collocation, phrasal verb + nghĩa ngắn>
+
+Nếu câu có lỗi ngữ pháp, thêm mục "**⚠️ Lỗi & cách sửa**" với câu đã sửa.
+
+Câu cần giải thích:
+{text}`;
+
+// ============================================
 // Full-page batch translation
 // ============================================
 

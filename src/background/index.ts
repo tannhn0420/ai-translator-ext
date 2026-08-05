@@ -42,6 +42,8 @@ import { callOpenAIAPI, callOpenAIAPIStream, validateOpenAIApiKey } from '../ser
 import {
   IELTS_SYSTEM_PROMPT,
   IELTS_TRANSLATION_TEMPLATE,
+  GRAMMAR_SYSTEM_PROMPT,
+  GRAMMAR_TEMPLATE,
   INPLACE_TRANSLATION_TEMPLATE,
   CONTEXT_TRANSLATION_TEMPLATE,
   DICTIONARY_TEMPLATE,
@@ -211,6 +213,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
 
     case 'ANALYZE_IELTS':
       return await handleIeltsAnalysis(message as any);
+
+    case 'EXPLAIN_GRAMMAR':
+      return await handleExplainGrammar(message as any);
 
     case 'TRANSLATE_INPLACE':
       return await handleInplaceTranslate(message as any);
@@ -485,6 +490,41 @@ async function handleIeltsAnalysis(request: any): Promise<any> {
   } catch (error: any) {
     console.error('IELTS Analysis error:', error);
     return { success: false, error: error.message || 'Analysis failed' };
+  }
+}
+
+/** Explain the grammar of a selected English sentence, in Vietnamese. */
+async function handleExplainGrammar(request: any): Promise<any> {
+  const settings = await getSettings();
+  const text: string = (request.payload?.text || '').trim();
+  if (!text) return { success: false, error: 'Không có nội dung để giải thích.' };
+
+  try {
+    let resultText = '';
+    const providers = buildProviderList(settings);
+    let lastError: Error | null = null;
+
+    for (const p of providers) {
+      if (!p.key) continue;
+      try {
+        resultText = await callProvider(p, text, 'auto', 'vi', GRAMMAR_SYSTEM_PROMPT, GRAMMAR_TEMPLATE);
+        lastError = null;
+        break;
+      } catch (err: any) {
+        lastError = err;
+        continue;
+      }
+    }
+
+    if (!resultText) {
+      if (lastError) throw lastError;
+      throw new Error('Chưa cấu hình API Key hoặc Provider không hợp lệ.');
+    }
+
+    return { success: true, data: { text: resultText } };
+  } catch (error: any) {
+    console.error('Grammar explain error:', error);
+    return { success: false, error: error.message || 'Giải thích thất bại.' };
   }
 }
 
