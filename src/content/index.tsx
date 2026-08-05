@@ -448,54 +448,81 @@ function initContentScript() {
     return Math.max(lo, Math.min(hi, v));
   }
 
-  async function translateText(text: string, context: string) {
-    try {
-      const isVietnamese = /[àáãạảăắằẳẵặâấầẩẫậèéẹẻẽêềếểễệđìíĩỉịòóõọỏôốồổỗộơớờởỡợùúũụủưứừửữựỳýỵỷỹ]/i.test(text);
-      const targetLang = isVietnamese ? 'en' : 'vi';
-      const wordCount = text.trim().split(/\s+/).length;
-      const dictionaryMode = wordCount <= DICT_WORD_LIMIT && cachedSettings.dictionaryModeEnabled;
+  function translateText(text: string, context: string) {
+    const isVietnamese = /[àáãạảăắằẳẵặâấầẩẫậèéẹẻẽêềếểễệđìíĩỉịòóõọỏôốồổỗộơớờởỡợùúũụủưứừửữựỳýỵỷỹ]/i.test(text);
+    const targetLang = isVietnamese ? 'en' : 'vi';
+    const wordCount = text.trim().split(/\s+/).length;
+    const dictionaryMode = wordCount <= DICT_WORD_LIMIT && cachedSettings.dictionaryModeEnabled;
 
-      const response: TranslateResponse = await chrome.runtime.sendMessage({
-        type: 'TRANSLATE_TEXT',
-        payload: {
-          text,
-          sourceLang: 'auto',
-          targetLang: targetLang,
-          context: cachedSettings.contextAwareEnabled ? context : undefined,
-          dictionaryMode,
-        },
-      });
+    const payload = {
+      text,
+      sourceLang: 'auto',
+      targetLang,
+      context: cachedSettings.contextAwareEnabled ? context : undefined,
+      dictionaryMode,
+    };
 
-      if (!bubble) return;
-      const body = bubble.querySelector('.ai-translator-bubble-body');
+    const getBody = () => bubble?.querySelector('.ai-translator-bubble-body') as HTMLElement | null;
+
+    const finalize = (full: string) => {
+      const body = getBody();
       if (!body) return;
-
-      if (response.success && response.data) {
-        renderTranslationResult(body as HTMLElement, response.data.translatedText, text, dictionaryMode);
-
-        // Refresh sidebar if open
-        const sidebar = document.getElementById('ai-translator-sidebar');
-        if (sidebar && sidebar.classList.contains('ai-translator-sidebar-open')) {
-          loadHistoryIntoSidebar(sidebar);
-        }
-      } else {
-        body.innerHTML = `
-          <div class="ai-translator-bubble-error">
-            ⚠️ ${escapeHtml(response.error || 'Translation failed')}
-          </div>
-        `;
+      renderTranslationResult(body, full, text, dictionaryMode);
+      const sidebar = document.getElementById('ai-translator-sidebar');
+      if (sidebar && sidebar.classList.contains('ai-translator-sidebar-open')) {
+        loadHistoryIntoSidebar(sidebar);
       }
+    };
+
+    const showError = (err?: string) => {
+      const body = getBody();
+      if (body) body.innerHTML = `<div class="ai-translator-bubble-error">⚠️ ${escapeHtml(err || 'Translation failed')}</div>`;
+    };
+
+    const fallbackNonStream = async () => {
+      try {
+        const response: TranslateResponse = await chrome.runtime.sendMessage({ type: 'TRANSLATE_TEXT', payload });
+        if (response.success && response.data) finalize(response.data.translatedText);
+        else showError(response.error);
+      } catch {
+        showError('Không thể kết nối. Kiểm tra API key trong settings.');
+      }
+    };
+
+    let port: chrome.runtime.Port;
+    try {
+      port = chrome.runtime.connect({ name: 'translate-stream' });
     } catch {
-      if (!bubble) return;
-      const body = bubble.querySelector('.ai-translator-bubble-body');
-      if (body) {
-        body.innerHTML = `
-          <div class="ai-translator-bubble-error">
-            ⚠️ Không thể kết nối. Kiểm tra API key trong settings.
-          </div>
-        `;
-      }
+      fallbackNonStream();
+      return;
     }
+
+    let settled = false;
+    let gotDelta = false;
+    port.onMessage.addListener((msg: { type: string; full?: string; error?: string }) => {
+      if (msg.type === 'delta') {
+        gotDelta = true;
+        const body = getBody();
+        if (body) {
+          body.innerHTML = `<div class="ai-translator-bubble-text ai-streaming">${escapeHtml(msg.full || '').replace(/\n/g, '<br>')}</div>`;
+        }
+      } else if (msg.type === 'done') {
+        settled = true;
+        finalize(msg.full || '');
+        try { port.disconnect(); } catch { /* noop */ }
+      } else if (msg.type === 'error') {
+        settled = true;
+        try { port.disconnect(); } catch { /* noop */ }
+        if (gotDelta) showError(msg.error);
+        else fallbackNonStream();
+      }
+    });
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      if (gotDelta) showError('Kết nối bị gián đoạn.');
+      else fallbackNonStream();
+    });
+    port.postMessage(payload);
   }
 
   function renderTranslationResult(body: HTMLElement, raw: string, originalText: string, dictionaryMode: boolean) {

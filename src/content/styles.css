@@ -153,6 +153,20 @@
   }
 }
 
+/* Streaming translation: blinking caret while text arrives */
+.ai-streaming::after {
+  content: '▋';
+  margin-left: 1px;
+  color: #6366f1;
+  animation: ai-translator-blink 1s steps(2, start) infinite;
+}
+
+@keyframes ai-translator-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
 /* Result */
 .ai-translator-bubble-result {
   display: flex;

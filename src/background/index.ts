@@ -25,8 +25,8 @@ import {
   setCachedTranslation,
   makeCacheKey,
 } from '../services/storage';
-import { callGeminiAPI, validateApiKey } from '../services/gemini';
-import { callOpenAIAPI, validateOpenAIApiKey } from '../services/openai';
+import { callGeminiAPI, callGeminiAPIStream, validateApiKey } from '../services/gemini';
+import { callOpenAIAPI, callOpenAIAPIStream, validateOpenAIApiKey } from '../services/openai';
 import {
   IELTS_SYSTEM_PROMPT,
   IELTS_TRANSLATION_TEMPLATE,
@@ -53,6 +53,103 @@ chrome.runtime.onMessage.addListener(
     return true; // Keep message channel open for async response
   }
 );
+
+// ============================================
+// Streaming translation (long-lived Port)
+// ============================================
+
+interface StreamRequest {
+  text: string;
+  sourceLang?: 'auto' | 'en' | 'vi';
+  targetLang: 'en' | 'vi';
+  context?: string;
+  dictionaryMode?: boolean;
+  customPrompt?: string;
+}
+
+function safePost(port: chrome.runtime.Port, msg: unknown): void {
+  try {
+    port.postMessage(msg);
+  } catch {
+    // port already disconnected
+  }
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'translate-stream') return;
+  port.onMessage.addListener((msg: StreamRequest) => {
+    streamTranslate(port, msg).catch((err) => {
+      safePost(port, { type: 'error', error: err instanceof Error ? err.message : 'Stream failed' });
+    });
+  });
+});
+
+async function streamTranslate(port: chrome.runtime.Port, req: StreamRequest): Promise<void> {
+  const settings = await getSettings();
+  const { text, targetLang, context, dictionaryMode, customPrompt } = req;
+  const sourceLang = req.sourceLang || 'auto';
+  const { template, mode } = selectTemplate(settings, text, context, dictionaryMode);
+  const systemPrompt = customPrompt || settings.systemPrompt;
+
+  // Cache hit → deliver immediately, no stream.
+  const providers = buildProviderList(settings);
+  if (settings.cacheEnabled) {
+    const key = makeCacheKey(text, targetLang, providers[0]?.model || 'unknown', mode);
+    const cached = await getCachedTranslation(key);
+    if (cached) {
+      safePost(port, { type: 'done', full: cached });
+      return;
+    }
+  }
+
+  let full = '';
+  let usedProviderId: string | null = null;
+  let lastError: Error | null = null;
+
+  for (const p of providers) {
+    if (!p.key) continue;
+    let emitted = false;
+    try {
+      full = await callProviderStream(p, text, sourceLang, targetLang, systemPrompt, template, (f) => {
+        emitted = true;
+        safePost(port, { type: 'delta', full: f });
+      });
+      usedProviderId = p.id;
+      if (p.id !== settings.provider) full = `[Fallback to ${p.id.toUpperCase()}]\n\n${full}`;
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err as Error;
+      if (emitted) break; // already streamed partial output — don't switch providers
+    }
+  }
+
+  if (!full) {
+    safePost(port, {
+      type: 'error',
+      error: lastError?.message || 'Chưa cấu hình API Key hoặc Provider không hợp lệ.',
+    });
+    return;
+  }
+
+  if (settings.cacheEnabled && usedProviderId) {
+    const usedModel = providers.find((pr) => pr.id === usedProviderId)?.model || 'unknown';
+    await setCachedTranslation(makeCacheKey(text, targetLang, usedModel, mode), full);
+  }
+  if (mode !== 'dictionary') {
+    await addToHistory({
+      id: Date.now().toString(),
+      sourceText: text.substring(0, 200),
+      translatedText: full.substring(0, 800),
+      sourceLang,
+      targetLang,
+      timestamp: Date.now(),
+    });
+  }
+  await incrementStats();
+
+  safePost(port, { type: 'done', full });
+}
 
 async function handleMessage(message: ChromeMessage): Promise<unknown> {
   switch (message.type) {
@@ -142,16 +239,36 @@ async function callProvider(
   return await callOpenAIAPI(text, sourceLang, targetLang, systemPrompt, template, p.key, p.model, p.baseUrl, maxTokens);
 }
 
-async function handleTranslate(request: TranslateRequest): Promise<TranslateResponse> {
-  const settings = await getSettings();
-  const { text, sourceLang, targetLang, customPrompt, context, dictionaryMode } = request.payload;
+async function callProviderStream(
+  p: ProviderEntry,
+  text: string,
+  sourceLang: 'auto' | 'en' | 'vi',
+  targetLang: 'en' | 'vi',
+  systemPrompt: string,
+  template: string,
+  onDelta: (full: string) => void,
+): Promise<string> {
+  if (p.id === 'gemini') {
+    return await callGeminiAPIStream(text, sourceLang, targetLang, systemPrompt, template, p.key, p.model, onDelta);
+  }
+  return await callOpenAIAPIStream(text, sourceLang, targetLang, systemPrompt, template, p.key, p.model, p.baseUrl, onDelta);
+}
 
-  // Decide which template to use
+type TranslateMode = 'translate' | 'dictionary' | 'context';
+
+/** Pick the prompt template + mode for a single-text translation (dictionary / context / default). */
+function selectTemplate(
+  settings: Awaited<ReturnType<typeof getSettings>>,
+  text: string,
+  context: string | undefined,
+  dictionaryMode: boolean | undefined,
+): { template: string; mode: TranslateMode } {
   let template = settings.translationTemplate;
-  let mode: 'translate' | 'dictionary' | 'context' = 'translate';
+  let mode: TranslateMode = 'translate';
 
   const wordCount = text.trim().split(/\s+/).length;
-  const isShortLookup = dictionaryMode === true ||
+  const isShortLookup =
+    dictionaryMode === true ||
     (dictionaryMode !== false && settings.dictionaryModeEnabled && wordCount <= DICTIONARY_MAX_WORDS);
 
   if (isShortLookup) {
@@ -161,6 +278,14 @@ async function handleTranslate(request: TranslateRequest): Promise<TranslateResp
     template = CONTEXT_TRANSLATION_TEMPLATE.replace('{context}', context.substring(0, CONTEXT_MAX_CHARS));
     mode = 'context';
   }
+  return { template, mode };
+}
+
+async function handleTranslate(request: TranslateRequest): Promise<TranslateResponse> {
+  const settings = await getSettings();
+  const { text, sourceLang, targetLang, customPrompt, context, dictionaryMode } = request.payload;
+
+  const { template, mode } = selectTemplate(settings, text, context, dictionaryMode);
 
   try {
     // Check cache first

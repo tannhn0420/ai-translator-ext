@@ -4,6 +4,7 @@
 
 import type { SourceLanguage, Language } from '../types';
 import { LANGUAGE_LABELS } from '../utils/constants';
+import { readSSE } from './sse';
 
 /**
  * Call OpenAI API for translation
@@ -60,6 +61,75 @@ export async function callOpenAIAPI(
 
   const data = await response.json();
   return data.choices[0].message.content.trim();
+}
+
+/**
+ * Streaming variant of callOpenAIAPI (also covers Groq / OpenRouter via baseUrl).
+ * Calls `onDelta` with the accumulated text and resolves with the final full text.
+ */
+export async function callOpenAIAPIStream(
+  text: string,
+  sourceLang: SourceLanguage,
+  targetLang: Language,
+  systemPrompt: string,
+  translationTemplate: string,
+  apiKey: string,
+  model: string,
+  baseUrl: string,
+  onDelta: (full: string) => void
+): Promise<string> {
+  if (!apiKey) {
+    throw new Error('OpenAI API key chưa được cấu hình. Vui lòng vào Settings để nhập API key.');
+  }
+  if (!text.trim()) {
+    throw new Error('Vui lòng nhập text cần dịch.');
+  }
+
+  const sourceLangName = sourceLang === 'auto' ? 'the detected language' : LANGUAGE_LABELS[sourceLang];
+  const targetLangName = LANGUAGE_LABELS[targetLang];
+  const userPrompt = translationTemplate
+    .replace('{text}', text)
+    .replace('{source_lang}', sourceLangName)
+    .replace('{target_lang}', targetLangName);
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.3,
+      stream: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    const message = errorData?.error?.message || response.statusText;
+    throw new Error(`OpenAI API Error: ${response.status} - ${message}`);
+  }
+
+  let full = '';
+  await readSSE(response, (data) => {
+    try {
+      const json = JSON.parse(data);
+      const piece = json.choices?.[0]?.delta?.content || '';
+      if (piece) {
+        full += piece;
+        onDelta(full);
+      }
+    } catch {
+      // ignore malformed chunk
+    }
+  });
+
+  return full.trim();
 }
 
 /**

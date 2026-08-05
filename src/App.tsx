@@ -116,33 +116,67 @@ function App() {
     }
   };
 
-  const handleTranslate = useCallback(async () => {
+  const handleTranslate = useCallback(() => {
     if (!inputText.trim() || isLoading) return;
 
     setIsLoading(true);
     setError(null);
     setOutputText('');
 
-    try {
-      const response: TranslateResponse = await chrome.runtime.sendMessage({
-        type: 'TRANSLATE_TEXT',
-        payload: {
-          text: inputText,
-          sourceLang,
-          targetLang,
-        },
-      });
+    const payload = { text: inputText, sourceLang, targetLang };
 
-      if (response.success && response.data) {
-        setOutputText(response.data.translatedText);
-      } else {
-        setError(response.error || 'Dịch thất bại. Vui lòng thử lại.');
+    const fallbackNonStream = async () => {
+      try {
+        const response: TranslateResponse = await chrome.runtime.sendMessage({ type: 'TRANSLATE_TEXT', payload });
+        if (response.success && response.data) setOutputText(response.data.translatedText);
+        else setError(response.error || 'Dịch thất bại. Vui lòng thử lại.');
+      } catch {
+        setError('Không thể kết nối tới service. Vui lòng reload extension.');
+      } finally {
+        setIsLoading(false);
       }
+    };
+
+    let port: chrome.runtime.Port;
+    try {
+      port = chrome.runtime.connect({ name: 'translate-stream' });
     } catch {
-      setError('Không thể kết nối tới service. Vui lòng reload extension.');
-    } finally {
-      setIsLoading(false);
+      fallbackNonStream();
+      return;
     }
+
+    let settled = false;
+    let gotDelta = false;
+    port.onMessage.addListener((msg: { type: string; full?: string; error?: string }) => {
+      if (msg.type === 'delta') {
+        gotDelta = true;
+        setOutputText(msg.full || '');
+      } else if (msg.type === 'done') {
+        settled = true;
+        setOutputText(msg.full || '');
+        setIsLoading(false);
+        try { port.disconnect(); } catch { /* noop */ }
+      } else if (msg.type === 'error') {
+        settled = true;
+        try { port.disconnect(); } catch { /* noop */ }
+        if (gotDelta) {
+          setError(msg.error || 'Dịch thất bại.');
+          setIsLoading(false);
+        } else {
+          fallbackNonStream();
+        }
+      }
+    });
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      if (gotDelta) {
+        setError('Kết nối bị gián đoạn.');
+        setIsLoading(false);
+      } else {
+        fallbackNonStream();
+      }
+    });
+    port.postMessage(payload);
   }, [inputText, sourceLang, targetLang, isLoading]);
 
   const handleSwap = () => {
