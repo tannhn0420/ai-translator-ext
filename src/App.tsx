@@ -258,6 +258,11 @@ function App() {
     chrome.runtime.openOptionsPage?.();
   };
 
+  const openFlashcards = () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/flashcards/flashcards.html') });
+    window.close();
+  };
+
   const toggleAutoTranslate = async () => {
     const newValue = !autoTranslate;
     setAutoTranslate(newValue);
@@ -307,6 +312,9 @@ function App() {
           </h1>
         </div>
         <div className="popup-header-actions">
+          <button className="header-btn" onClick={openFlashcards} title="Sổ từ vựng (Flashcards)">
+            📇
+          </button>
           <button className="header-btn" onClick={openZenMode} title="Zen Reading Mode">
             📖
           </button>

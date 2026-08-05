@@ -11,6 +11,8 @@ import type {
   BatchTranslateResponse,
   BatchTranslateItem,
   Language,
+  VocabCard,
+  VocabCardInput,
 } from '../types';
 import {
   getSettings,
@@ -24,7 +26,12 @@ import {
   getCachedTranslation,
   setCachedTranslation,
   makeCacheKey,
+  getVocab,
+  saveVocabCard,
+  updateVocabCard,
+  deleteVocabCard,
 } from '../services/storage';
+import { createCard } from '../utils/srs';
 import { callGeminiAPI, callGeminiAPIStream, validateApiKey } from '../services/gemini';
 import { callOpenAIAPI, callOpenAIAPIStream, validateOpenAIApiKey } from '../services/openai';
 import {
@@ -197,6 +204,23 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
 
     case 'TRANSLATE_BATCH':
       return await handleTranslateBatch(message as BatchTranslateRequest);
+
+    case 'SAVE_VOCAB': {
+      const card = createCard(message.payload as VocabCardInput, Date.now());
+      const added = await saveVocabCard(card);
+      return { success: true, data: { added, card } };
+    }
+
+    case 'GET_VOCAB':
+      return { success: true, data: await getVocab() };
+
+    case 'UPDATE_VOCAB':
+      await updateVocabCard((message.payload as { card: VocabCard }).card);
+      return { success: true };
+
+    case 'DELETE_VOCAB':
+      await deleteVocabCard((message.payload as { id: string }).id);
+      return { success: true };
 
     default:
       return { success: false, error: 'Unknown message type' };
@@ -626,6 +650,16 @@ chrome.runtime.onInstalled.addListener(() => {
       contexts: ['selection'],
     });
     chrome.contextMenus.create({
+      id: 'translate-selection-bilingual',
+      title: '📑 Dịch song ngữ tại chỗ',
+      contexts: ['selection'],
+    });
+    chrome.contextMenus.create({
+      id: 'translate-selection-replace',
+      title: '✍️ Dịch & ghi đè tại chỗ',
+      contexts: ['selection'],
+    });
+    chrome.contextMenus.create({
       id: 'translate-page',
       title: '🌐 Dịch / khôi phục toàn trang',
       contexts: ['page'],
@@ -640,6 +674,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     chrome.tabs.sendMessage(tab.id, {
       type: 'TRANSLATE_SELECTION',
       payload: { text: info.selectionText },
+    });
+  } else if (info.menuItemId === 'translate-selection-bilingual') {
+    chrome.tabs.sendMessage(tab.id, {
+      type: 'TRANSLATE_SELECTION_INLINE',
+      payload: { mode: 'bilingual' },
+    });
+  } else if (info.menuItemId === 'translate-selection-replace') {
+    chrome.tabs.sendMessage(tab.id, {
+      type: 'TRANSLATE_SELECTION_INLINE',
+      payload: { mode: 'replace' },
     });
   } else if (info.menuItemId === 'translate-page') {
     const settings = await getSettings();

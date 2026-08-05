@@ -2,7 +2,7 @@
 // Chrome Storage Service
 // ============================================
 
-import type { AppSettings, TranslationHistoryItem } from '../types';
+import type { AppSettings, TranslationHistoryItem, VocabCard } from '../types';
 import {
   DEFAULT_MODEL,
   DEFAULT_OPENAI_MODEL,
@@ -217,4 +217,45 @@ export async function setCachedTranslation(key: string, text: string): Promise<v
   } catch (error) {
     console.error('Failed to write cache:', error);
   }
+}
+
+// ============================================
+// Vocabulary deck (flashcards)
+// ============================================
+
+const VOCAB_KEY = 'vocabDeck';
+
+export async function getVocab(): Promise<VocabCard[]> {
+  try {
+    const result = await chrome.storage.local.get({ [VOCAB_KEY]: [] });
+    return result[VOCAB_KEY] as VocabCard[];
+  } catch {
+    return [];
+  }
+}
+
+/** Add a card unless an equivalent term (same normalized text + language) already exists. */
+export async function saveVocabCard(card: VocabCard): Promise<boolean> {
+  const deck = await getVocab();
+  const norm = (s: string) => s.trim().toLowerCase();
+  if (deck.some((c) => c.lang === card.lang && norm(c.term) === norm(card.term))) {
+    return false; // duplicate
+  }
+  deck.unshift(card);
+  await chrome.storage.local.set({ [VOCAB_KEY]: deck });
+  return true;
+}
+
+export async function updateVocabCard(card: VocabCard): Promise<void> {
+  const deck = await getVocab();
+  const i = deck.findIndex((c) => c.id === card.id);
+  if (i >= 0) {
+    deck[i] = card;
+    await chrome.storage.local.set({ [VOCAB_KEY]: deck });
+  }
+}
+
+export async function deleteVocabCard(id: string): Promise<void> {
+  const deck = await getVocab();
+  await chrome.storage.local.set({ [VOCAB_KEY]: deck.filter((c) => c.id !== id) });
 }

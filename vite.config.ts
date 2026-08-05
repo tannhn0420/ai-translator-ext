@@ -19,6 +19,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         options: 'src/options/options.html',
+        flashcards: 'src/flashcards/flashcards.html',
       },
     },
   },

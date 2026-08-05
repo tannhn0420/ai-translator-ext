@@ -5,6 +5,7 @@
 
 import type { TranslateResponse, PageTranslateMode, Language } from '../types';
 import { handleTranslatePage } from './pageTranslate/controller';
+import { translateSelection } from './pageTranslate/selection';
 
 // Avoid re-injection
 if (!(window as unknown as Record<string, boolean>).__AI_TRANSLATOR_INJECTED__) {
@@ -44,6 +45,12 @@ function initContentScript() {
 
   // Bubble drag-position memory (per-session, viewport coords)
   let bubbleDragState: { left: number; top: number } | null = null;
+
+  const VI_RE = /[àáãạảăắằẳẵặâấầẩẫậèéẹẻẽêềếểễệđìíĩỉịòóõọỏôốồổỗộơớờởỡợùúũụủưứừửữựỳýỵỷỹ]/i;
+  const detectLang = (s: string): Language => (VI_RE.test(s) ? 'vi' : 'en');
+
+  // Cloned selection range for in-place selection translation (survives selection collapse).
+  let currentSelectionRange: Range | null = null;
 
   initSidebar();
 
@@ -104,6 +111,7 @@ function initContentScript() {
       const selection = window.getSelection();
       if (selection && selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
+        currentSelectionRange = range.cloneRange();
         const rect = range.getBoundingClientRect();
         showTranslationBubble(rect, message.payload.text, extractContext(range));
       }
@@ -113,6 +121,12 @@ function initContentScript() {
       const mode: PageTranslateMode = message.payload?.mode === 'bilingual' ? 'bilingual' : 'replace';
       const targetLang: Language = message.payload?.targetLang === 'en' ? 'en' : 'vi';
       handleTranslatePage(mode, targetLang);
+    } else if (message.type === 'TRANSLATE_SELECTION_INLINE') {
+      const mode: PageTranslateMode = message.payload?.mode === 'bilingual' ? 'bilingual' : 'replace';
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+        runInlineSelectionTranslate(selection.getRangeAt(0).cloneRange(), mode);
+      }
     }
   });
 
@@ -215,6 +229,7 @@ function initContentScript() {
     if (!selectedText || selectedText.length < 2) return;
 
     const range = selection!.getRangeAt(0);
+    currentSelectionRange = range.cloneRange();
     const rect = range.getBoundingClientRect();
     const x = rect.left + rect.width / 2 || e.clientX;
     const y = rect.bottom || e.clientY;
@@ -533,28 +548,143 @@ function initContentScript() {
           <div class="ai-action-bar">
             <button class="ai-tts-btn" data-text="${escapeHtml(originalText)}" data-lang="auto" title="Phát âm">🔊 Phát âm</button>
             <button class="ai-copy-all-btn" data-text="${escapeHtml(raw)}" title="Copy">📋 Copy</button>
+            <button class="ai-vocab-save-btn" title="Lưu vào sổ từ vựng">📇 Lưu từ</button>
           </div>
         </div>
       `;
       wireActionBar(body);
+      attachVocabSave(body, parseDictCard(raw, originalText));
       return;
     }
 
     const formatted = formatTranslatedText(raw);
     const rawEnMatch = raw.match(/(- )?(English|Tiếng Anh):\s*([\s\S]*?)(?=(- )?(Vietnamese|Tiếng Việt):|$)/i);
     const enText = rawEnMatch ? rawEnMatch[3].trim() : originalText;
+    const rawViMatch = raw.match(/(- )?(Vietnamese|Tiếng Việt):\s*([\s\S]*?)(?=(- )?(English|Tiếng Anh):|$)/i);
+    const viText = rawViMatch ? rawViMatch[3].trim() : '';
+
+    const lang = detectLang(originalText);
+    const meaning = lang === 'en' ? viText || enText : enText;
 
     body.innerHTML = `
       <div class="ai-translator-bubble-result-container">
         ${formatted.fallback ? `<div class="ai-translator-fallback-badge">${formatted.fallback}</div>` : ''}
         <div class="ai-translator-sections">${formatted.html}</div>
-        <button class="ai-ielts-btn" data-text="${escapeHtml(enText)}" title="Rewrite to IELTS 8.0">🎓 Rewrite (IELTS 8.0)</button>
+        <div class="ai-action-bar">
+          <button class="ai-inline-bi-btn" title="Chèn bản dịch song ngữ vào đoạn trên trang">📑 Song ngữ</button>
+          <button class="ai-inline-rep-btn" title="Ghi đè đoạn bằng bản dịch (giữ format)">✍️ Ghi đè</button>
+          <button class="ai-ielts-btn" data-text="${escapeHtml(enText)}" title="Rewrite to IELTS 8.0">🎓 IELTS</button>
+          <button class="ai-vocab-save-btn" title="Lưu vào sổ từ vựng">📇 Lưu</button>
+        </div>
         <div class="ai-ielts-result" style="display: none;"></div>
       </div>
     `;
 
     wireActionBar(body);
     wireIeltsButton(body);
+    wireInlineTranslate(body);
+    attachVocabSave(body, {
+      term: originalText,
+      lang,
+      meaning,
+      example: '',
+      context: '',
+      sourceUrl: location.href,
+    });
+  }
+
+  /** Wire the "Song ngữ" / "Ghi đè" buttons in the bubble to translate the selected block(s) in place. */
+  function wireInlineTranslate(scope: HTMLElement) {
+    const run = (mode: PageTranslateMode) => {
+      if (!currentSelectionRange) {
+        showInlineToast('Không còn vùng chọn. Hãy bôi đen lại.', false);
+        return;
+      }
+      runInlineSelectionTranslate(currentSelectionRange.cloneRange(), mode);
+    };
+    scope.querySelector('.ai-inline-bi-btn')?.addEventListener('click', () => run('bilingual'));
+    scope.querySelector('.ai-inline-rep-btn')?.addEventListener('click', () => run('replace'));
+  }
+
+  /** Show a loader near the selection, translate the block(s) in place, then confirm. */
+  async function runInlineSelectionTranslate(range: Range, mode: PageTranslateMode) {
+    const rect = range.getBoundingClientRect();
+    const loader = document.createElement('div');
+    loader.style.cssText = `
+      position: absolute; left: ${rect.left + window.scrollX}px; top: ${rect.bottom + window.scrollY + 8}px;
+      z-index: 2147483647; background: rgba(15,15,35,0.95); color: #34d399;
+      padding: 4px 10px; border-radius: 20px; font-size: 12px;
+      display: flex; align-items: center; gap: 6px; font-family: Inter, sans-serif;
+    `;
+    loader.innerHTML = '<div class="ai-translator-spinner" style="width:12px;height:12px;"></div> Đang dịch...';
+    document.body.appendChild(loader);
+
+    removeBubble();
+    removeIcon();
+
+    try {
+      const res = await translateSelection(range, mode);
+      loader.remove();
+      showInlineToast(res.msg, res.ok);
+    } catch {
+      loader.remove();
+      showInlineToast('Lỗi dịch thuật. Vui lòng thử lại.', false);
+    }
+  }
+
+  /** Small transient toast near the top-right for inline-translate feedback. */
+  function showInlineToast(message: string, ok: boolean) {
+    const el = document.createElement('div');
+    el.style.cssText = `
+      position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
+      background: ${ok ? 'rgba(16,185,129,0.95)' : 'rgba(239,68,68,0.95)'}; color: #fff;
+      padding: 8px 14px; border-radius: 10px; font-size: 13px; font-family: Inter, sans-serif;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    `;
+    el.textContent = message;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2400);
+  }
+
+  /** Extract a compact vocab card from a dictionary-mode markdown result. */
+  function parseDictCard(raw: string, term: string) {
+    const lang = detectLang(term);
+    const ipa = (raw.match(/\*\*IPA:\*\*\s*([^\n]+)/i)?.[1] || '').trim();
+    const viMeaning = (raw.match(/\*\*Vietnamese:\*\*\s*\n?\s*[-*]?\s*([^\n]+)/i)?.[1] || '').trim();
+    const enDef = (raw.match(/\*\*English definition:\*\*\s*\n?\s*([^\n]+)/i)?.[1] || '').trim();
+    const example = (raw.match(/\*\*Examples?:\*\*[\s\S]*?\n\s*1\.\s*([^\n]+)/i)?.[1] || '').trim();
+    const meaning = lang === 'en' ? viMeaning || enDef : enDef || viMeaning;
+    return {
+      term,
+      lang,
+      meaning,
+      ipa: ipa || undefined,
+      example: example || undefined,
+      context: '',
+      sourceUrl: location.href,
+    };
+  }
+
+  /** Wire a "Lưu từ" button that saves a card to the vocabulary deck. */
+  function attachVocabSave(
+    scope: HTMLElement,
+    payload: { term: string; lang: Language; meaning: string; ipa?: string; example?: string; context?: string; sourceUrl?: string },
+  ) {
+    const btn = scope.querySelector('.ai-vocab-save-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      if (!payload.term.trim() || !payload.meaning.trim()) {
+        btn.textContent = '⚠️ Thiếu nghĩa';
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const res = await chrome.runtime.sendMessage({ type: 'SAVE_VOCAB', payload });
+        btn.textContent = res?.success ? (res.data?.added ? '✅ Đã lưu' : 'ℹ️ Đã có') : '⚠️ Lỗi';
+      } catch {
+        btn.textContent = '⚠️ Lỗi';
+      }
+    });
   }
 
   function wireActionBar(scope: HTMLElement) {

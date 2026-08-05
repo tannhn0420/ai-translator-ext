@@ -41,8 +41,13 @@ export type MessageType =
   | 'CLEAR_HISTORY'
   | 'ANALYZE_IELTS'
   | 'TRANSLATE_INPLACE'
+  | 'TRANSLATE_SELECTION_INLINE'
   | 'TOGGLE_PIN_HISTORY'
-  | 'DELETE_HISTORY_ITEM';
+  | 'DELETE_HISTORY_ITEM'
+  | 'SAVE_VOCAB'
+  | 'GET_VOCAB'
+  | 'UPDATE_VOCAB'
+  | 'DELETE_VOCAB';
 
 export interface ChromeMessage {
   type: MessageType;
@@ -158,6 +163,34 @@ export interface AppSettings {
 export interface TranslationHistory {
   items: TranslationHistoryItem[];
 }
+
+// ============================================
+// Vocabulary / Flashcards (spaced repetition)
+// ============================================
+
+export type ReviewRating = 'again' | 'hard' | 'good' | 'easy';
+
+export interface VocabCard {
+  id: string;
+  term: string;
+  lang: Language; // language of the term ('en' | 'vi')
+  meaning: string;
+  ipa?: string;
+  example?: string;
+  context?: string; // sentence the term was saved from
+  sourceUrl?: string;
+  createdAt: number;
+  // SRS (SM-2 lite)
+  due: number; // next review timestamp (ms)
+  interval: number; // days
+  ease: number; // ease factor
+  reps: number; // consecutive successful reviews
+  lapses: number;
+}
+
+/** Input for creating a new card (SRS fields filled in by the SRS util). */
+export type VocabCardInput = Pick<VocabCard, 'term' | 'lang' | 'meaning'> &
+  Partial<Pick<VocabCard, 'ipa' | 'example' | 'context' | 'sourceUrl'>>;
 
 // Gemini API types
 export interface GeminiRequest {
