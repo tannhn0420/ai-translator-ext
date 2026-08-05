@@ -67,6 +67,7 @@ export default function PracticeApp() {
   const [stats, setStats] = useState<PracticeStats>(EMPTY_STATS);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [rolePlay, setRolePlay] = useState(false);
+  const [dictOpen, setDictOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [ieltsOpen, setIeltsOpen] = useState(false);
 
@@ -118,7 +119,7 @@ export default function PracticeApp() {
     };
   }, []);
 
-  function speak(text: string, lang: Language = 'en', onEnd?: () => void) {
+  function speak(text: string, lang: Language = 'en', onEnd?: () => void, rate?: number) {
     if (!('speechSynthesis' in window) || !text) return;
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
@@ -126,7 +127,7 @@ export default function PracticeApp() {
     const v = voices.find((x) => x.voiceURI === uri);
     if (v) u.voice = v;
     else u.lang = lang === 'vi' ? 'vi-VN' : 'en-US';
-    u.rate = ttsRef.current.rate || 0.95;
+    u.rate = rate ?? ttsRef.current.rate ?? 0.95;
     if (onEnd) u.onend = onEnd;
     window.speechSynthesis.speak(u);
   }
@@ -151,6 +152,7 @@ export default function PracticeApp() {
 
   function resetModes() {
     setRolePlay(false);
+    setDictOpen(false);
     setChatOpen(false);
     setIeltsOpen(false);
     setSaveMsg('');
@@ -410,11 +412,16 @@ export default function PracticeApp() {
             <section className="pr-section">
               <div className="pr-section-head">
                 <h2>Hội thoại</h2>
-                {SR_SUPPORTED && !rolePlay && (
-                  <button className="pr-save" onClick={() => setRolePlay(true)}>🎭 Đóng vai</button>
+                {!rolePlay && !dictOpen && (
+                  <div className="pr-head-actions">
+                    {SR_SUPPORTED && <button className="pr-save" onClick={() => setRolePlay(true)}>🎭 Đóng vai</button>}
+                    <button className="pr-save" onClick={() => setDictOpen(true)}>🎧 Chép chính tả</button>
+                  </div>
                 )}
               </div>
-              {rolePlay ? (
+              {dictOpen ? (
+                <DictationMode segments={pack.dialogue} speak={speak} onScore={recordScore} onExit={() => setDictOpen(false)} />
+              ) : rolePlay ? (
                 <RolePlay dialogue={pack.dialogue} speak={speak} onScore={recordScore} onExit={() => setRolePlay(false)} />
               ) : (
                 pack.dialogue.map((d: DialogueLine, i) => (
@@ -688,6 +695,111 @@ function AssessmentCard({ a, speak }: { a: SpeakingAssessment; speak: (text: str
 
       <div className="pr-note" style={{ marginTop: 10 }}>
         Lưu ý: điểm <b>Pronunciation</b> chỉ ước lượng từ bản ghi giọng nói tự động — không thay thế giám khảo thật.
+      </div>
+    </div>
+  );
+}
+
+// ---- Dictation: listen to each segment, type it, get scored ----
+
+function DictationMode({
+  segments,
+  speak,
+  onScore,
+  onExit,
+}: {
+  segments: DialogueLine[];
+  speak: (text: string, lang?: Language, onEnd?: () => void, rate?: number) => void;
+  onScore: (score: number) => void;
+  onExit: () => void;
+}) {
+  const [idx, setIdx] = useState(0);
+  const [input, setInput] = useState('');
+  const [score, setScore] = useState<SpeechScore | null>(null);
+  const [scores, setScores] = useState<number[]>([]);
+  const seg = segments[idx];
+  const done = idx >= segments.length;
+
+  useEffect(() => {
+    if (!done && seg) speak(seg.en, 'en');
+    return () => window.speechSynthesis?.cancel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx]);
+
+  function check() {
+    if (!seg || score) return;
+    const sc = scoreSpeech(seg.en, input);
+    setScore(sc);
+    setScores((s) => [...s, sc.score]);
+    onScore(sc.score);
+  }
+  function next() { setInput(''); setScore(null); setIdx((i) => i + 1); }
+  function retry() { setInput(''); setScore(null); }
+  function restart() { setIdx(0); setInput(''); setScore(null); setScores([]); }
+
+  if (done) {
+    const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    return (
+      <div className="pr-roleplay pr-roleplay-done">
+        <div className="pr-empty-emoji">🎧</div>
+        <p>Xong! Điểm chép chính tả trung bình: <b>{avg}%</b> ({scores.length} đoạn)</p>
+        <div className="pr-line-actions" style={{ justifyContent: 'center' }}>
+          <button className="pr-act" onClick={restart}>Làm lại</button>
+          <button className="pr-act" onClick={onExit}>Thoát</button>
+        </div>
+      </div>
+    );
+  }
+
+  const progress = Math.round((idx / segments.length) * 100);
+
+  return (
+    <div className="pr-roleplay">
+      <div className="pr-progress"><div className="pr-progress-fill" style={{ width: `${progress}%` }} /></div>
+      <div className="pr-roleplay-bar">
+        <span>🎧 Nghe &amp; chép · Đoạn {idx + 1}/{segments.length}</span>
+        <button className="pr-act" onClick={onExit}>Thoát</button>
+      </div>
+
+      <div className="pr-turn">
+        {seg.speaker && <span className="pr-speaker">{seg.speaker}</span>}
+        <div className="pr-line-body">
+          <div className="pr-line-actions">
+            <button className="pr-act" onClick={() => speak(seg.en, 'en')}>🔊 Nghe</button>
+            <button className="pr-act" onClick={() => speak(seg.en, 'en', undefined, 0.6)}>🐢 Chậm</button>
+          </div>
+
+          {!score ? (
+            <>
+              <input
+                className="pr-dict-input"
+                style={{ width: '100%', marginTop: 10 }}
+                placeholder="Nghe rồi gõ lại câu bạn nghe được…"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && check()}
+                autoFocus
+              />
+              <div className="pr-line-actions">
+                <button className="pr-act" onClick={check} disabled={!input.trim()}>Kiểm tra</button>
+                <button className="pr-act" onClick={next}>Bỏ qua →</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="pr-line-en" style={{ marginTop: 8 }}>
+                {score.tokens.map((t, k) => <span key={k} className={t.ok ? 'ok' : 'miss'}>{t.w} </span>)}
+              </div>
+              <div className="pr-line-vi">{seg.vi}</div>
+              <div className="pr-transcript">Bạn gõ: “{input}”</div>
+              <div className="pr-line-actions">
+                <span className={`pr-score ${score.score >= 70 ? 'good' : 'low'}`}>{score.score}%</span>
+                <button className="pr-act" onClick={retry}>🔁 Thử lại</button>
+                <button className="pr-act" onClick={next}>Tiếp →</button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

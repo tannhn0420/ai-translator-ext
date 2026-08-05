@@ -172,6 +172,11 @@ export default function FlashcardsApp() {
     }
   }
 
+  function skipCard() {
+    setFlipped(false);
+    setIdx((i) => i + 1);
+  }
+
   async function del(id: string) {
     setDeck((d) => d.filter((c) => c.id !== id));
     try {
@@ -409,6 +414,7 @@ export default function FlashcardsApp() {
               ) : (
                 <button className="fc-flip" onClick={() => setFlipped(true)}>Hiện nghĩa</button>
               )}
+              <button className="fc-skip" onClick={skipCard} title="Chuyển thẻ tiếp theo mà không chấm">Bỏ qua →</button>
             </>
           )}
         </section>
