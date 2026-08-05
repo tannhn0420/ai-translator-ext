@@ -344,7 +344,14 @@ body {
   border-radius: 12px;
   padding: 12px 14px;
 }
-.pr-vocab-term { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.pr-vocab-term { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pr-vocab-img {
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin: 8px 0;
+}
 .pr-vocab-ipa { color: var(--muted); font-size: 13px; margin-top: 2px; }
 .pr-vocab-meaning { color: #6ee7b7; font-size: 14px; margin-top: 4px; }
 .pr-vocab-ex { color: var(--muted); font-style: italic; font-size: 12.5px; margin-top: 6px; }

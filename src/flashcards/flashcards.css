@@ -531,6 +531,32 @@ body {
   border-radius: 10px;
   border: 1px solid var(--border);
 }
+.fc-img-choices {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.fc-img-choice {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+.fc-img-choice:hover { opacity: 1; }
+.fc-img-choice.sel { border-color: var(--indigo); opacity: 1; }
+.fc-autoimg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
 .fc-form-actions {
   display: flex;
   gap: 10px;

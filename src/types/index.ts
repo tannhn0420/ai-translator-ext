@@ -170,6 +170,9 @@ export interface AppSettings {
   // Appearance
   theme: 'dark' | 'light';
 
+  // Vocabulary
+  vocabAutoImage: boolean; // auto-attach an illustration when saving a word
+
   // UI state
   sidebarToggleY: number; // px from top, persisted icon position
   sidebarWidth: number;   // px

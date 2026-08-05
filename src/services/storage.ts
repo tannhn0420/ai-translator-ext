@@ -47,6 +47,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   reminderEnabled: true,
   reminderIntervalMin: 10,
   theme: 'dark',
+  vocabAutoImage: true,
   sidebarToggleY: 0,    // 0 means use default (50%)
   sidebarWidth: 360,
   totalTranslations: 0,

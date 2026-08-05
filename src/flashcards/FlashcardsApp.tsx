@@ -62,6 +62,8 @@ export default function FlashcardsApp() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [msg, setMsg] = useState('');
   const [findingImg, setFindingImg] = useState(false);
+  const [imgChoices, setImgChoices] = useState<string[]>([]);
+  const [autoImgOn, setAutoImgOn] = useState(true);
 
   // TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -102,6 +104,7 @@ export default function FlashcardsApp() {
         const th = s.data.theme === 'light' ? 'light' : 'dark';
         setTheme(th);
         document.documentElement.dataset.theme = th;
+        setAutoImgOn(s.data.vocabAutoImage !== false);
       }
     } catch {
       /* ignore */
@@ -269,14 +272,26 @@ export default function FlashcardsApp() {
     if (!term || findingImg) return;
     setFindingImg(true);
     setMsg('');
+    setImgChoices([]);
     try {
       const res = await chrome.runtime.sendMessage({ type: 'FETCH_IMAGE', payload: { query: term } });
-      if (res?.success && res.data?.url) setForm((f) => ({ ...f, image: res.data.url }));
-      else setMsg(res?.error || 'Không tìm được ảnh.');
+      const urls = res?.data?.urls as string[] | undefined;
+      if (urls?.length) {
+        setImgChoices(urls);
+        setForm((f) => ({ ...f, image: urls[0] }));
+      } else {
+        setMsg(res?.error || 'Không tìm được ảnh.');
+      }
     } catch {
       setMsg('Lỗi tìm ảnh.');
     }
     setFindingImg(false);
+  }
+
+  function toggleAutoImg() {
+    const next = !autoImgOn;
+    setAutoImgOn(next);
+    chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { vocabAutoImage: next } }).catch(() => {});
   }
 
   async function onImportPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -358,6 +373,9 @@ export default function FlashcardsApp() {
           Tốc độ {ttsRate.toFixed(2)}
           <input type="range" min="0.5" max="1.5" step="0.05" value={ttsRate}
             onChange={(e) => { const r = parseFloat(e.target.value); setTtsRate(r); saveTts({ ttsRate: r }); }} />
+        </label>
+        <label className="fc-autoimg" title="Tự thêm ảnh minh hoạ khi lưu từ mới">
+          <input type="checkbox" checked={autoImgOn} onChange={toggleAutoImg} /> 🖼️ Tự thêm ảnh
         </label>
       </div>
 
@@ -516,6 +534,19 @@ export default function FlashcardsApp() {
               <input type="file" accept="image/*" onChange={onImagePick} title="Hoặc tải ảnh của bạn" />
               {form.image && <button className="fc-icon-btn" onClick={() => setForm((f) => ({ ...f, image: undefined }))}>Xoá ảnh</button>}
             </div>
+            {imgChoices.length > 1 && (
+              <div className="fc-img-choices">
+                {imgChoices.map((u) => (
+                  <img
+                    key={u}
+                    src={u}
+                    alt=""
+                    className={`fc-img-choice ${form.image === u ? 'sel' : ''}`}
+                    onClick={() => setForm((f) => ({ ...f, image: u }))}
+                  />
+                ))}
+              </div>
+            )}
           </div>
           <div className="fc-form-actions">
             <button className="fc-flip" onClick={saveForm}>{form.id ? 'Lưu' : 'Tạo thẻ'}</button>

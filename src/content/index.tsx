@@ -25,6 +25,7 @@ interface CachedSettings {
   ttsRate: number;
   reminderEnabled: boolean;
   reminderIntervalMin: number;
+  vocabAutoImage: boolean;
 }
 
 const CONTEXT_CHARS_AROUND = 250;
@@ -52,6 +53,7 @@ function initContentScript() {
     ttsRate: 0.95,
     reminderEnabled: true,
     reminderIntervalMin: 10,
+    vocabAutoImage: true,
   };
   let reminderStarted = false;
 
@@ -195,6 +197,7 @@ function initContentScript() {
           ttsRate: response.data.ttsRate || 0.95,
           reminderEnabled: response.data.reminderEnabled !== false,
           reminderIntervalMin: response.data.reminderIntervalMin || 10,
+          vocabAutoImage: response.data.vocabAutoImage !== false,
         };
         applySidebarSettings();
         startReminderTimer();
@@ -562,6 +565,7 @@ function initContentScript() {
     if (dictionaryMode) {
       body.innerHTML = `
         <div class="ai-translator-bubble-result-container">
+          <img class="ai-dict-img" alt="" style="display:none;" />
           <div class="ai-dict-content">${renderMarkdown(raw)}</div>
           <div class="ai-action-bar">
             <button class="ai-tts-btn" data-text="${escapeHtml(originalText)}" data-lang="auto" title="Phát âm">🔊 Phát âm</button>
@@ -572,6 +576,20 @@ function initContentScript() {
       `;
       wireActionBar(body);
       attachVocabSave(body, parseDictCard(raw, originalText));
+
+      // Illustrative image for the looked-up word (free, Openverse).
+      if (detectLang(originalText) === 'en') {
+        const imgEl = body.querySelector('.ai-dict-img') as HTMLImageElement | null;
+        chrome.runtime.sendMessage({ type: 'FETCH_IMAGE', payload: { query: originalText } })
+          .then((r) => {
+            const url = r?.data?.urls?.[0];
+            if (url && imgEl && bubble) {
+              imgEl.src = url;
+              imgEl.style.display = 'block';
+            }
+          })
+          .catch(() => {});
+      }
       return;
     }
 
@@ -699,6 +717,17 @@ function initContentScript() {
       try {
         const res = await chrome.runtime.sendMessage({ type: 'SAVE_VOCAB', payload });
         btn.textContent = res?.success ? (res.data?.added ? '✅ Đã lưu' : 'ℹ️ Đã có') : '⚠️ Lỗi';
+        // Auto-enrich the newly saved card with a free illustration (Openverse).
+        if (res?.success && res.data?.added && res.data.card && cachedSettings.vocabAutoImage) {
+          chrome.runtime.sendMessage({ type: 'FETCH_IMAGE', payload: { query: payload.term } })
+            .then((imgRes) => {
+              const url = imgRes?.data?.urls?.[0];
+              if (url) {
+                chrome.runtime.sendMessage({ type: 'UPDATE_VOCAB', payload: { card: { ...res.data.card, image: url } } }).catch(() => {});
+              }
+            })
+            .catch(() => {});
+        }
       } catch {
         btn.textContent = '⚠️ Lỗi';
       }

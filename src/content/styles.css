@@ -634,6 +634,14 @@
   background: rgba(99, 102, 241, 0.2);
 }
 
+.ai-dict-img {
+  width: 100%;
+  max-height: 130px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
 .ai-dict-content {
   font-size: 13.5px;
   line-height: 1.7;

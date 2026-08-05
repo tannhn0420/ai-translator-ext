@@ -1004,17 +1004,17 @@ async function handleAssessSpeaking(request: { payload: { transcript: string; qu
  * Fetch a relevant illustration for a term from Openverse (CC-licensed, no API key).
  * Returns a thumbnail URL served from api.openverse.org.
  */
-async function handleFetchImage(query: string): Promise<{ success: boolean; data?: { url: string }; error?: string }> {
+async function handleFetchImage(query: string): Promise<{ success: boolean; data?: { urls: string[] }; error?: string }> {
   const q = (query || '').trim();
   if (!q) return { success: false, error: 'Thiếu từ khoá.' };
   try {
-    const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=3&mature=false`;
+    const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=8&mature=false`;
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) return { success: false, error: `Openverse ${res.status}` };
     const data = await res.json();
-    const item = (data.results || [])[0] as { thumbnail?: string; url?: string } | undefined;
-    const img = item?.thumbnail || item?.url || '';
-    return img ? { success: true, data: { url: img } } : { success: false, error: 'Không tìm thấy ảnh phù hợp.' };
+    const results = (data.results || []) as { thumbnail?: string; url?: string }[];
+    const urls = results.map((r) => r.thumbnail || r.url || '').filter(Boolean).slice(0, 6);
+    return urls.length ? { success: true, data: { urls } } : { success: false, error: 'Không tìm thấy ảnh phù hợp.' };
   } catch {
     return { success: false, error: 'Không tải được ảnh.' };
   }

@@ -3,7 +3,7 @@
 // ============================================
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PracticePack, DialogueLine, Language, SpeakingAssessment, VocabCard, DrillPack } from '../types';
+import type { PracticePack, DialogueLine, Language, SpeakingAssessment, VocabCard, DrillPack, PracticeVocab } from '../types';
 import { isSpeechRecognitionSupported, recognizeOnce, scoreSpeech, type SpeechScore, type RecognitionHandle } from './speech';
 
 const TOPIC_SUGGESTIONS = ['Nhà hàng', 'Sân bay', 'Phỏng vấn xin việc', 'Khách sạn', 'Mua sắm', 'Cuộc họp', 'Du lịch', 'Đi khám bệnh'];
@@ -487,16 +487,7 @@ export default function PracticeApp() {
               {saveMsg && <div className="pr-savemsg">{saveMsg}</div>}
               <div className="pr-vocab-grid">
                 {pack.vocab.map((v, i) => (
-                  <div className="pr-vocab" key={i}>
-                    <div className="pr-vocab-term">
-                      {v.term}
-                      <button className="pr-mini" title="Nghe" onClick={() => speak(v.term, 'en')}>🔊</button>
-                      <button className="pr-mini" title="Phát âm trong video thật (YouGlish)" onClick={() => openUrl(youglishUrl(v.term))}>🎬</button>
-                    </div>
-                    {v.ipa && <div className="pr-vocab-ipa">/{v.ipa.replace(/^\/|\/$/g, '')}/</div>}
-                    <div className="pr-vocab-meaning">{v.meaning}</div>
-                    {v.example && <div className="pr-vocab-ex">“{v.example}”</div>}
-                  </div>
+                  <VocabItem key={i} v={v} speak={speak} />
                 ))}
               </div>
             </section>
@@ -1359,6 +1350,42 @@ function DrillMode({
           <p>Chọn một âm ở trên để bắt đầu luyện phát âm.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- Vocab card with on-demand illustration ----
+
+function VocabItem({ v, speak }: { v: PracticeVocab; speak: (text: string, lang?: Language) => void }) {
+  const [img, setImg] = useState('');
+  const [loadingImg, setLoadingImg] = useState(false);
+
+  async function fetchImg() {
+    if (loadingImg) return;
+    if (img) { setImg(''); return; } // toggle off
+    setLoadingImg(true);
+    try {
+      const r = await chrome.runtime.sendMessage({ type: 'FETCH_IMAGE', payload: { query: v.term } });
+      const u = r?.data?.urls?.[0];
+      if (u) setImg(u);
+    } catch {
+      /* ignore */
+    }
+    setLoadingImg(false);
+  }
+
+  return (
+    <div className="pr-vocab">
+      <div className="pr-vocab-term">
+        {v.term}
+        <button className="pr-mini" title="Nghe" onClick={() => speak(v.term, 'en')}>🔊</button>
+        <button className="pr-mini" title="Phát âm trong video thật (YouGlish)" onClick={() => openUrl(youglishUrl(v.term))}>🎬</button>
+        <button className="pr-mini" title="Ảnh minh hoạ" onClick={fetchImg}>{loadingImg ? '…' : '🖼️'}</button>
+      </div>
+      {img && <img className="pr-vocab-img" src={img} alt="" />}
+      {v.ipa && <div className="pr-vocab-ipa">/{v.ipa.replace(/^\/|\/$/g, '')}/</div>}
+      <div className="pr-vocab-meaning">{v.meaning}</div>
+      {v.example && <div className="pr-vocab-ex">“{v.example}”</div>}
     </div>
   );
 }
