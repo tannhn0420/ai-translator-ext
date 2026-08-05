@@ -744,7 +744,7 @@ async function handleGeneratePractice(request: { payload: { topic: string; level
   const activeModel = providers[0]?.model || 'unknown';
 
   if (settings.cacheEnabled) {
-    const cached = await getCachedTranslation(makeCacheKey(text, 'vi', activeModel, 'practice'));
+    const cached = await getCachedTranslation(makeCacheKey(text, 'vi', activeModel, 'practice2'));
     if (cached) {
       try {
         return { success: true, data: JSON.parse(cached) as PracticePack };
@@ -781,7 +781,7 @@ async function handleGeneratePractice(request: { payload: { topic: string; level
   }
 
   if (settings.cacheEnabled) {
-    await setCachedTranslation(makeCacheKey(text, 'vi', usedModel, 'practice'), JSON.stringify(pack));
+    await setCachedTranslation(makeCacheKey(text, 'vi', usedModel, 'practice2'), JSON.stringify(pack));
   }
   await incrementStats();
   return { success: true, data: pack };

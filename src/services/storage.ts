@@ -46,6 +46,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   ttsRate: 0.95,
   reminderEnabled: true,
   reminderIntervalMin: 10,
+  theme: 'dark',
   sidebarToggleY: 0,    // 0 means use default (50%)
   sidebarWidth: 360,
   totalTranslations: 0,

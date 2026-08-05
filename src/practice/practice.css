@@ -8,6 +8,55 @@
   --emerald: #10b981;
 }
 
+:root[data-theme="light"] {
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --border: #e4e7f1;
+  --text: #1f2937;
+  --muted: #64748b;
+}
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(1100px 500px at 15% -10%, rgba(99, 102, 241, 0.08), transparent),
+    radial-gradient(900px 460px at 100% 0%, rgba(16, 185, 129, 0.06), transparent),
+    var(--bg);
+}
+[data-theme="light"] .pr-input,
+[data-theme="light"] .pr-select,
+[data-theme="light"] .pr-dict-input { background: #fff; }
+[data-theme="light"] .pr-cue,
+[data-theme="light"] .pr-answer,
+[data-theme="light"] .pr-crit { background: #f7f8fc; }
+[data-theme="light"] .pr-assess { background: #fff; }
+[data-theme="light"] .pr-vocab-meaning,
+[data-theme="light"] .pr-item-meaning { color: #047857; }
+[data-theme="light"] .pr-assess-model p { color: #047857; background: rgba(16, 185, 129, 0.08); }
+[data-theme="light"] .pr-act { background: rgba(99, 102, 241, 0.1); color: #4338ca; }
+[data-theme="light"] .pr-msg.assistant .pr-bubble { background: #eef1f7; color: #1f2937; }
+[data-theme="light"] .pr-turn-cue { color: #4f46e5; }
+[data-theme="light"] .pr-progress { background: rgba(0, 0, 0, 0.08); }
+[data-theme="light"] .pr-header h1,
+[data-theme="light"] .pr-empty-emoji { filter: none; }
+
+/* Header right + theme toggle */
+.pr-header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.pr-theme {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 15px;
+}
+.pr-theme:hover { border-color: var(--indigo); }
+
 * { box-sizing: border-box; }
 
 body {
@@ -107,6 +156,10 @@ body {
 }
 .pr-chip:hover:not(:disabled) { color: var(--text); border-color: var(--indigo); }
 .pr-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pr-recent { margin-top: 8px; align-items: center; }
+.pr-recent-label { font-size: 12px; color: var(--muted); }
+.pr-recent .pr-chip { border-style: dashed; }
 
 .pr-note, .pr-error, .pr-savemsg {
   border-radius: 10px;

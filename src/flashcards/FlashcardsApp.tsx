@@ -67,6 +67,7 @@ export default function FlashcardsApp() {
   const [ttsVoiceEn, setTtsVoiceEn] = useState('');
   const [ttsVoiceVi, setTtsVoiceVi] = useState('');
   const [ttsRate, setTtsRate] = useState(0.95);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -97,6 +98,9 @@ export default function FlashcardsApp() {
         setTtsVoiceEn(s.data.ttsVoiceEn || '');
         setTtsVoiceVi(s.data.ttsVoiceVi || '');
         setTtsRate(s.data.ttsRate || 0.95);
+        const th = s.data.theme === 'light' ? 'light' : 'dark';
+        setTheme(th);
+        document.documentElement.dataset.theme = th;
       }
     } catch {
       /* ignore */
@@ -294,6 +298,13 @@ export default function FlashcardsApp() {
   const enVoices = voices.filter((v) => v.lang.toLowerCase().startsWith('en'));
   const viVoices = voices.filter((v) => v.lang.toLowerCase().startsWith('vi'));
 
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { theme: next } }).catch(() => {});
+  };
+
   return (
     <div className="fc-app">
       <header className="fc-header">
@@ -305,6 +316,9 @@ export default function FlashcardsApp() {
           <span><b>{stats.total}</b> từ</span>
           <span className="fc-due"><b>{stats.due}</b> đến hạn</span>
           <span><b>{stats.learned}</b> đã thuộc</span>
+          <button className="fc-theme" onClick={toggleTheme} title="Đổi giao diện sáng/tối">
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
         </div>
       </header>
 

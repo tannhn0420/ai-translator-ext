@@ -164,6 +164,9 @@ export interface AppSettings {
   reminderEnabled: boolean;
   reminderIntervalMin: number;
 
+  // Appearance
+  theme: 'dark' | 'light';
+
   // UI state
   sidebarToggleY: number; // px from top, persisted icon position
   sidebarWidth: number;   // px

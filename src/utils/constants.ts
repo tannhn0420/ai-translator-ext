@@ -169,7 +169,7 @@ export const PAGE_BATCH_MAX_OUTPUT_TOKENS = 8192;
 // Topic practice generation
 // ============================================
 
-export const PRACTICE_SYSTEM_PROMPT = `You are an encouraging English tutor creating speaking & listening practice material for a Vietnamese learner. Output natural, useful, real-world English with accurate Vietnamese translations and correct IPA. Keep vocabulary and phrases genuinely practical for the topic. Return only what the format asks — no commentary.`;
+export const PRACTICE_SYSTEM_PROMPT = `You are an encouraging English tutor creating SPEAKING & LISTENING practice for a Vietnamese learner. Write the way people actually talk in everyday life — natural spoken English with contractions, fillers used sparingly, real reactions and follow-ups — not textbook sentences. Provide accurate Vietnamese translations and correct General American IPA. Keep everything genuinely practical for the topic. Return only what the format asks — no commentary.`;
 
 export const PRACTICE_TEMPLATE = `Create English practice material for the request below.
 
@@ -178,13 +178,15 @@ export const PRACTICE_TEMPLATE = `Create English practice material for the reque
 Return ONLY a JSON object in EXACTLY this shape (no markdown, no code fences):
 {
   "vocab": [ { "term": "<word or short phrase>", "ipa": "<IPA without slashes>", "meaning": "<short Vietnamese meaning>", "example": "<natural English example sentence>" } ],
-  "phrases": [ { "en": "<useful English sentence for this topic>", "vi": "<Vietnamese translation>" } ],
-  "dialogue": [ { "speaker": "A", "en": "<line of a short natural dialogue>", "vi": "<Vietnamese translation>" } ]
+  "phrases": [ { "en": "<useful everyday spoken sentence for this topic>", "vi": "<Vietnamese translation>" } ],
+  "dialogue": [ { "speaker": "A", "en": "<a natural line of everyday conversation>", "vi": "<Vietnamese translation>" } ]
 }
 
 Rules:
-- vocab: 8 items. phrases: 6 items. dialogue: 6-8 alternating lines (speakers A and B) forming one coherent conversation.
-- Match the requested level. Keep sentences speakable (not too long).
+- vocab: 10 items (mix single words, phrasal verbs, and common collocations/idioms real speakers use).
+- phrases: 10 items — natural DAILY-SPEAKING expressions for this topic (reactions, requests, small talk, useful chunks), not generic textbook lines.
+- dialogue: a realistic everyday conversation of 12-16 alternating lines (speakers A and B). It should flow like real life: greetings, back-and-forth, follow-up questions, natural reactions and a natural ending. Sentences can vary in length like real speech, but stay speakable.
+- Match the requested level (simpler wording for beginner, richer for advanced) but always sound natural and spoken.
 - IPA must be correct General American. Vietnamese must read naturally.`;
 
 // ============================================

@@ -8,6 +8,40 @@
   --emerald: #10b981;
 }
 
+:root[data-theme="light"] {
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --border: #e4e7f1;
+  --text: #1f2937;
+  --muted: #64748b;
+}
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(1200px 600px at 20% -10%, rgba(99, 102, 241, 0.1), transparent),
+    radial-gradient(1000px 500px at 100% 0%, rgba(16, 185, 129, 0.07), transparent),
+    var(--bg);
+}
+[data-theme="light"] .fc-search,
+[data-theme="light"] .fc-select,
+[data-theme="light"] .fc-input,
+[data-theme="light"] .fc-textarea,
+[data-theme="light"] .fc-topic-select { background: #fff; }
+[data-theme="light"] .fc-card-meaning,
+[data-theme="light"] .fc-item-meaning { color: #047857; }
+[data-theme="light"] .fc-card.flipped { background: rgba(16, 185, 129, 0.06); }
+
+.fc-theme {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+}
+.fc-theme:hover { border-color: var(--indigo); }
+
 * {
   box-sizing: border-box;
 }

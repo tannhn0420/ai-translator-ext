@@ -12,6 +12,15 @@
   overflow: hidden;
 }
 
+:root[data-theme="light"] .popup-app {
+  background: linear-gradient(180deg, #ffffff 0%, #f4f6fb 100%);
+}
+:root[data-theme="light"] .output-card {
+  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+:root[data-theme="light"] .output-text { color: var(--text-primary); }
+
 /* ---- Header (fixed) ---- */
 .popup-header {
   flex-shrink: 0;

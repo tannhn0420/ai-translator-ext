@@ -25,6 +25,7 @@ function App() {
   const [currentHost, setCurrentHost] = useState('');
   const [autoSite, setAutoSite] = useState(false);
   const [reminderEnabled, setReminderEnabled] = useState(true);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
   // Load settings on mount
   useEffect(() => {
@@ -112,6 +113,9 @@ function App() {
         setAutoTranslate(settings.autoTranslateOnHighlight);
         setPageMode(settings.pageTranslateMode || 'replace');
         setReminderEnabled(settings.reminderEnabled !== false);
+        const th = settings.theme === 'light' ? 'light' : 'dark';
+        setTheme(th);
+        document.documentElement.dataset.theme = th;
       }
     } catch {
       // Extension context may not be available during development
@@ -259,6 +263,13 @@ function App() {
       .catch(() => {});
   };
 
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { theme: next } }).catch(() => {});
+  };
+
   const handleClear = () => {
     setInputText('');
     setOutputText('');
@@ -328,6 +339,7 @@ function App() {
           <h1 className="popup-title">AI Translator</h1>
         </div>
         <div className="popup-header-actions">
+          <button className="header-btn" onClick={toggleTheme} title="Giao diện sáng/tối">{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="header-btn" onClick={openPractice} title="Luyện tập theo chủ đề">🎯</button>
           <button className="header-btn" onClick={openFlashcards} title="Sổ từ vựng">📇</button>
           <button className="header-btn" onClick={openZenMode} title="Đọc tập trung (Zen)">📖</button>

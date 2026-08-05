@@ -34,6 +34,18 @@ function youtubeSearchUrl(topic: string) {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(topic + ' english conversation')}`;
 }
 
+async function persistPack(key: string, pack: PracticePack, lv: string) {
+  try {
+    const r = await chrome.storage.local.get({ practicePacks: {} });
+    const packs = (r.practicePacks || {}) as Record<string, { pack: PracticePack; level: string; at: number }>;
+    packs[key] = { pack, level: lv, at: Date.now() };
+    const capped = Object.fromEntries(
+      Object.entries(packs).sort((a, b) => b[1].at - a[1].at).slice(0, 24),
+    );
+    await chrome.storage.local.set({ practicePacks: capped });
+  } catch { /* ignore */ }
+}
+
 export default function PracticeApp() {
   const [topic, setTopic] = useState('');
   const [level, setLevel] = useState('intermediate');
@@ -42,9 +54,14 @@ export default function PracticeApp() {
   const [error, setError] = useState('');
   const [saveMsg, setSaveMsg] = useState('');
   const [stats, setStats] = useState<PracticeStats>(EMPTY_STATS);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [rolePlay, setRolePlay] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [ieltsOpen, setIeltsOpen] = useState(false);
+
+  // Cache of generated packs (instant, token-free topic switching)
+  const packCacheRef = useRef<Map<string, PracticePack>>(new Map());
+  const [recent, setRecent] = useState<{ key: string; topic: string; level: string }[]>([]);
 
   // TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -57,11 +74,27 @@ export default function PracticeApp() {
     (async () => {
       try {
         const s = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
-        if (s?.data) ttsRef.current = { en: s.data.ttsVoiceEn || '', vi: s.data.ttsVoiceVi || '', rate: s.data.ttsRate || 0.95 };
+        if (s?.data) {
+          ttsRef.current = { en: s.data.ttsVoiceEn || '', vi: s.data.ttsVoiceVi || '', rate: s.data.ttsRate || 0.95 };
+          const th = s.data.theme === 'light' ? 'light' : 'dark';
+          setTheme(th);
+          document.documentElement.dataset.theme = th;
+        }
       } catch { /* ignore */ }
       try {
         const r = await chrome.storage.local.get({ practiceStats: EMPTY_STATS });
         setStats(r.practiceStats as PracticeStats);
+      } catch { /* ignore */ }
+      try {
+        const r = await chrome.storage.local.get({ practicePacks: {} });
+        const saved = (r.practicePacks || {}) as Record<string, { pack: PracticePack; level: string; at: number }>;
+        const entries = Object.entries(saved).sort((a, b) => b[1].at - a[1].at);
+        const rec: { key: string; topic: string; level: string }[] = [];
+        for (const [k, v] of entries) {
+          packCacheRef.current.set(k, v.pack);
+          rec.push({ key: k, topic: v.pack.topic, level: v.level });
+        }
+        setRecent(rec.slice(0, 12));
       } catch { /* ignore */ }
     })();
     return () => {
@@ -96,23 +129,65 @@ export default function PracticeApp() {
     });
   }
 
+  function packKey(t: string, lv: string) {
+    return `${t.trim().toLowerCase()}|${lv}`;
+  }
+
+  function resetModes() {
+    setRolePlay(false);
+    setChatOpen(false);
+    setIeltsOpen(false);
+    setSaveMsg('');
+    setError('');
+  }
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { theme: next } }).catch(() => {});
+  }
+
   async function generate(t?: string) {
     const q = (t ?? topic).trim();
     if (!q || loading) return;
     setTopic(q);
+    resetModes();
+
+    // Instant + token-free if this topic+level was generated before.
+    const key = packKey(q, level);
+    const cached = packCacheRef.current.get(key);
+    if (cached) {
+      setPack(cached);
+      return;
+    }
+
     setLoading(true);
-    setError('');
     setPack(null);
-    setSaveMsg('');
-    setRolePlay(false);
     try {
       const res = await chrome.runtime.sendMessage({ type: 'GENERATE_PRACTICE', payload: { topic: q, level } });
-      if (res?.success && res.data) setPack(res.data as PracticePack);
-      else setError(res?.error || 'Không tạo được bài luyện.');
+      if (res?.success && res.data) {
+        const pack = res.data as PracticePack;
+        setPack(pack);
+        packCacheRef.current.set(key, pack);
+        void persistPack(key, pack, level);
+        setRecent((prev) => [{ key, topic: q, level }, ...prev.filter((r) => r.key !== key)].slice(0, 12));
+      } else {
+        setError(res?.error || 'Không tạo được bài luyện.');
+      }
     } catch {
       setError('Không kết nối được. Kiểm tra API key / reload extension.');
     }
     setLoading(false);
+  }
+
+  function switchTo(r: { key: string; topic: string; level: string }) {
+    const cached = packCacheRef.current.get(r.key);
+    setLevel(r.level);
+    setTopic(r.topic);
+    resetModes();
+    if (cached) setPack(cached);
+    else void generate(r.topic);
   }
 
   async function saveVocab() {
@@ -142,13 +217,18 @@ export default function PracticeApp() {
       <header className="pr-header">
         <span className="pr-logo">🎯</span>
         <h1>Luyện tập theo chủ đề</h1>
-        {stats.attempts > 0 && (
-          <div className="pr-stats">
-            <span>🔥 {stats.streak} ngày</span>
-            <span>🗣️ {stats.attempts} lượt</span>
-            <span>📊 TB {avg}%</span>
-          </div>
-        )}
+        <div className="pr-header-right">
+          {stats.attempts > 0 && (
+            <div className="pr-stats">
+              <span>🔥 {stats.streak} ngày</span>
+              <span>🗣️ {stats.attempts} lượt</span>
+              <span>📊 TB {avg}%</span>
+            </div>
+          )}
+          <button className="pr-theme" onClick={toggleTheme} title="Đổi giao diện sáng/tối">
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+        </div>
       </header>
 
       {/* Topic bar */}
@@ -189,6 +269,16 @@ export default function PracticeApp() {
             <button key={s} className="pr-chip" onClick={() => generate(s)} disabled={loading}>{s}</button>
           ))}
         </div>
+        {recent.length > 0 && (
+          <div className="pr-chips pr-recent">
+            <span className="pr-recent-label">↺ Gần đây:</span>
+            {recent.map((r) => (
+              <button key={r.key} className="pr-chip" onClick={() => switchTo(r)} title="Mở lại (đã lưu, không tốn token)">
+                {r.topic}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {!SR_SUPPORTED && (
