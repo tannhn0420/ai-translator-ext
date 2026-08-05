@@ -20,6 +20,7 @@ export default defineConfig({
       input: {
         options: 'src/options/options.html',
         flashcards: 'src/flashcards/flashcards.html',
+        practice: 'src/practice/practice.html',
       },
     },
   },

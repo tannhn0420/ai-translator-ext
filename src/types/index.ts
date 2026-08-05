@@ -49,7 +49,8 @@ export type MessageType =
   | 'UPDATE_VOCAB'
   | 'DELETE_VOCAB'
   | 'IMPORT_VOCAB'
-  | 'GET_REMINDER_CARD';
+  | 'GET_REMINDER_CARD'
+  | 'GENERATE_PRACTICE';
 
 export interface ChromeMessage {
   type: MessageType;
@@ -204,6 +205,35 @@ export interface VocabCard {
 /** Input for creating a new card (SRS fields filled in by the SRS util). */
 export type VocabCardInput = Pick<VocabCard, 'term' | 'lang' | 'meaning'> &
   Partial<Pick<VocabCard, 'ipa' | 'example' | 'context' | 'sourceUrl' | 'topic' | 'image'>>;
+
+// ============================================
+// Topic practice (speaking & listening)
+// ============================================
+
+export interface PracticeVocab {
+  term: string;
+  ipa?: string;
+  meaning: string;
+  example?: string;
+}
+
+export interface PracticePhrase {
+  en: string;
+  vi: string;
+}
+
+export interface DialogueLine {
+  speaker: string;
+  en: string;
+  vi: string;
+}
+
+export interface PracticePack {
+  topic: string;
+  vocab: PracticeVocab[];
+  phrases: PracticePhrase[];
+  dialogue: DialogueLine[];
+}
 
 // Gemini API types
 export interface GeminiRequest {

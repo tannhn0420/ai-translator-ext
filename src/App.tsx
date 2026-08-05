@@ -274,6 +274,11 @@ function App() {
     window.close();
   };
 
+  const openPractice = () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/practice/practice.html') });
+    window.close();
+  };
+
   const toggleAutoTranslate = async () => {
     const newValue = !autoTranslate;
     setAutoTranslate(newValue);
@@ -323,6 +328,7 @@ function App() {
           <h1 className="popup-title">AI Translator</h1>
         </div>
         <div className="popup-header-actions">
+          <button className="header-btn" onClick={openPractice} title="Luyện tập theo chủ đề">🎯</button>
           <button className="header-btn" onClick={openFlashcards} title="Sổ từ vựng">📇</button>
           <button className="header-btn" onClick={openZenMode} title="Đọc tập trung (Zen)">📖</button>
           <button className="header-btn" onClick={openOptions} title="Cài đặt">⚙️</button>

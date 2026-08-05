@@ -13,6 +13,7 @@ import type {
   Language,
   VocabCard,
   VocabCardInput,
+  PracticePack,
 } from '../types';
 import {
   getSettings,
@@ -45,6 +46,8 @@ import {
   CONTEXT_MAX_CHARS,
   PAGE_BATCH_TEMPLATE,
   PAGE_BATCH_MAX_OUTPUT_TOKENS,
+  PRACTICE_SYSTEM_PROMPT,
+  PRACTICE_TEMPLATE,
 } from '../utils/constants';
 
 // Listen for messages from popup, options, and content scripts
@@ -239,6 +242,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
 
     case 'GET_REMINDER_CARD':
       return { success: true, data: { card: await pickReminderCard() } };
+
+    case 'GENERATE_PRACTICE':
+      return await handleGeneratePractice(message as { payload: { topic: string; level?: string } });
 
     default:
       return { success: false, error: 'Unknown message type' };
@@ -674,6 +680,99 @@ async function handleTranslateBatch(request: BatchTranslateRequest): Promise<Bat
 
   await incrementStats();
   return { success: true, data: result };
+}
+
+// ============================================
+// Topic practice generation
+// ============================================
+
+function normalizePack(parsed: unknown, topic: string): PracticePack {
+  const p = (parsed || {}) as Record<string, unknown>;
+  const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+  return {
+    topic,
+    vocab: arr(p.vocab)
+      .map((x) => {
+        const o = (x || {}) as Record<string, unknown>;
+        return { term: str(o.term), ipa: str(o.ipa) || undefined, meaning: str(o.meaning), example: str(o.example) || undefined };
+      })
+      .filter((v) => v.term && v.meaning),
+    phrases: arr(p.phrases)
+      .map((x) => {
+        const o = (x || {}) as Record<string, unknown>;
+        return { en: str(o.en), vi: str(o.vi) };
+      })
+      .filter((v) => v.en),
+    dialogue: arr(p.dialogue)
+      .map((x) => {
+        const o = (x || {}) as Record<string, unknown>;
+        return { speaker: str(o.speaker) || 'A', en: str(o.en), vi: str(o.vi) };
+      })
+      .filter((v) => v.en),
+  };
+}
+
+async function handleGeneratePractice(request: { payload: { topic: string; level?: string } }): Promise<{
+  success: boolean;
+  data?: PracticePack;
+  error?: string;
+}> {
+  const settings = await getSettings();
+  const topic = (request.payload.topic || '').trim();
+  const level = request.payload.level || 'intermediate';
+  if (!topic) return { success: false, error: 'Hãy nhập chủ đề.' };
+
+  const providers = buildProviderList(settings);
+  if (!providers.some((p) => p.key)) {
+    return { success: false, error: 'Chưa cấu hình API Key hoặc Provider không hợp lệ.' };
+  }
+
+  const text = `Topic: ${topic}\nLevel: ${level}`;
+  const activeModel = providers[0]?.model || 'unknown';
+
+  if (settings.cacheEnabled) {
+    const cached = await getCachedTranslation(makeCacheKey(text, 'vi', activeModel, 'practice'));
+    if (cached) {
+      try {
+        return { success: true, data: JSON.parse(cached) as PracticePack };
+      } catch {
+        /* stale/corrupt → regenerate */
+      }
+    }
+  }
+
+  let raw = '';
+  let usedModel = activeModel;
+  let lastError: Error | null = null;
+  for (const p of providers) {
+    if (!p.key) continue;
+    try {
+      await pace();
+      raw = await callProvider(p, text, 'auto', 'vi', PRACTICE_SYSTEM_PROMPT, PRACTICE_TEMPLATE, PAGE_BATCH_MAX_OUTPUT_TOKENS);
+      usedModel = p.model;
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err as Error;
+    }
+  }
+  if (!raw) return { success: false, error: lastError?.message || 'Không tạo được bài luyện.' };
+
+  const parsed = extractJson(raw);
+  if (!parsed || typeof parsed !== 'object') {
+    return { success: false, error: 'Kết quả AI không hợp lệ, thử lại nhé.' };
+  }
+  const pack = normalizePack(parsed, topic);
+  if (pack.vocab.length === 0 && pack.phrases.length === 0) {
+    return { success: false, error: 'Không tạo được nội dung. Thử chủ đề khác.' };
+  }
+
+  if (settings.cacheEnabled) {
+    await setCachedTranslation(makeCacheKey(text, 'vi', usedModel, 'practice'), JSON.stringify(pack));
+  }
+  await incrementStats();
+  return { success: true, data: pack };
 }
 
 // ============================================

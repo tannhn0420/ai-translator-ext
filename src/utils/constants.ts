@@ -165,6 +165,28 @@ export const PAGE_TRANSLATE_MAX_BLOCKS = 1500;
 /** Output token budget for batch calls (target language can be longer than source). */
 export const PAGE_BATCH_MAX_OUTPUT_TOKENS = 8192;
 
+// ============================================
+// Topic practice generation
+// ============================================
+
+export const PRACTICE_SYSTEM_PROMPT = `You are an encouraging English tutor creating speaking & listening practice material for a Vietnamese learner. Output natural, useful, real-world English with accurate Vietnamese translations and correct IPA. Keep vocabulary and phrases genuinely practical for the topic. Return only what the format asks — no commentary.`;
+
+export const PRACTICE_TEMPLATE = `Create English practice material for the request below.
+
+{text}
+
+Return ONLY a JSON object in EXACTLY this shape (no markdown, no code fences):
+{
+  "vocab": [ { "term": "<word or short phrase>", "ipa": "<IPA without slashes>", "meaning": "<short Vietnamese meaning>", "example": "<natural English example sentence>" } ],
+  "phrases": [ { "en": "<useful English sentence for this topic>", "vi": "<Vietnamese translation>" } ],
+  "dialogue": [ { "speaker": "A", "en": "<line of a short natural dialogue>", "vi": "<Vietnamese translation>" } ]
+}
+
+Rules:
+- vocab: 8 items. phrases: 6 items. dialogue: 6-8 alternating lines (speakers A and B) forming one coherent conversation.
+- Match the requested level. Keep sentences speakable (not too long).
+- IPA must be correct General American. Vietnamese must read naturally.`;
+
 export const PRESET_PROMPTS = [
   {
     id: 'accurate',
