@@ -48,7 +48,8 @@ export type MessageType =
   | 'GET_VOCAB'
   | 'UPDATE_VOCAB'
   | 'DELETE_VOCAB'
-  | 'IMPORT_VOCAB';
+  | 'IMPORT_VOCAB'
+  | 'GET_REMINDER_CARD';
 
 export interface ChromeMessage {
   type: MessageType;
@@ -155,6 +156,10 @@ export interface AppSettings {
   ttsVoiceEn: string; // preferred voiceURI for English
   ttsVoiceVi: string; // preferred voiceURI for Vietnamese
   ttsRate: number; // speech rate
+
+  // Study reminder (in-tab toast)
+  reminderEnabled: boolean;
+  reminderIntervalMin: number;
 
   // UI state
   sidebarToggleY: number; // px from top, persisted icon position

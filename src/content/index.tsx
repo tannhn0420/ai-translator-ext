@@ -3,9 +3,10 @@
 // ============================================
 // Injected into all web pages to enable highlight translation
 
-import type { TranslateResponse, PageTranslateMode, Language } from '../types';
+import type { TranslateResponse, PageTranslateMode, Language, VocabCard } from '../types';
 import { handleTranslatePage } from './pageTranslate/controller';
 import { translateSelection } from './pageTranslate/selection';
+import { reviewCard } from '../utils/srs';
 
 // Avoid re-injection
 if (!(window as unknown as Record<string, boolean>).__AI_TRANSLATOR_INJECTED__) {
@@ -22,6 +23,8 @@ interface CachedSettings {
   ttsVoiceEn: string;
   ttsVoiceVi: string;
   ttsRate: number;
+  reminderEnabled: boolean;
+  reminderIntervalMin: number;
 }
 
 const CONTEXT_CHARS_AROUND = 250;
@@ -47,7 +50,10 @@ function initContentScript() {
     ttsVoiceEn: '',
     ttsVoiceVi: '',
     ttsRate: 0.95,
+    reminderEnabled: true,
+    reminderIntervalMin: 10,
   };
+  let reminderStarted = false;
 
   // Bubble drag-position memory (per-session, viewport coords)
   let bubbleDragState: { left: number; top: number } | null = null;
@@ -187,8 +193,11 @@ function initContentScript() {
           ttsVoiceEn: response.data.ttsVoiceEn || '',
           ttsVoiceVi: response.data.ttsVoiceVi || '',
           ttsRate: response.data.ttsRate || 0.95,
+          reminderEnabled: response.data.reminderEnabled !== false,
+          reminderIntervalMin: response.data.reminderIntervalMin || 10,
         };
         applySidebarSettings();
+        startReminderTimer();
       }
     } catch {
       // keep defaults
@@ -777,6 +786,84 @@ function initContentScript() {
     else utter.lang = isVi ? 'vi-VN' : 'en-US';
     utter.rate = cachedSettings.ttsRate || 0.95;
     window.speechSynthesis.speak(utter);
+  }
+
+  // --- Study reminder (in-tab toast) ---
+
+  function startReminderTimer() {
+    if (reminderStarted) return;
+    reminderStarted = true;
+    const min = Math.max(1, cachedSettings.reminderIntervalMin || 10);
+    setInterval(async () => {
+      // Only nudge on the tab the user is actively viewing.
+      if (document.visibilityState !== 'visible') return;
+      if (document.getElementById('ai-translator-reminder')) return; // one at a time
+      try {
+        const res = await chrome.runtime.sendMessage({ type: 'GET_REMINDER_CARD' });
+        const card = res?.data?.card as VocabCard | null | undefined;
+        if (card) showReminderToast(card);
+      } catch {
+        // ignore
+      }
+    }, min * 60 * 1000);
+  }
+
+  function showReminderToast(card: VocabCard) {
+    const el = document.createElement('div');
+    el.id = 'ai-translator-reminder';
+    el.style.cssText = `
+      position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
+      width: 300px; max-width: calc(100vw - 32px);
+      background: rgba(15,15,35,0.97); color: #e2e8f0; border: 1px solid rgba(99,102,241,0.4);
+      border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+      font-family: Inter, system-ui, sans-serif; padding: 14px 16px;
+      animation: ai-translator-fadeIn 0.25s ease;
+    `;
+    const ipa = card.ipa
+      ? ` <span style="color:#94a3b8;font-size:12px;">/${escapeHtml(card.ipa.replace(/^\/|\/$/g, ''))}/</span>`
+      : '';
+    const example = card.example
+      ? `<div style="color:#94a3b8;font-size:12px;font-style:italic;margin-top:6px;">"${escapeHtml(card.example)}"</div>`
+      : '';
+    const img = card.image
+      ? `<img src="${card.image}" alt="" style="max-width:100%;max-height:110px;border-radius:8px;margin-top:8px;display:block;">`
+      : '';
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:12px;color:#a5b4fc;">📇 Ôn từ vựng</span>
+        <button class="rem-close" title="Ẩn" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">✕</button>
+      </div>
+      <div style="font-size:18px;font-weight:700;">${escapeHtml(card.term)}${ipa}
+        <button class="rem-tts" title="Nghe" style="background:none;border:none;cursor:pointer;font-size:15px;margin-left:6px;">🔊</button>
+      </div>
+      <div style="color:#6ee7b7;font-size:14px;margin-top:4px;">${escapeHtml(card.meaning)}</div>
+      ${example}
+      ${img}
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="rem-known" style="flex:1;padding:7px;border:none;border-radius:8px;background:rgba(16,185,129,0.9);color:#fff;font-size:13px;cursor:pointer;">✓ Đã thuộc</button>
+        <button class="rem-hide" style="flex:1;padding:7px;border:1px solid rgba(99,102,241,0.4);border-radius:8px;background:transparent;color:#e2e8f0;font-size:13px;cursor:pointer;">Ẩn</button>
+      </div>
+    `;
+    document.body.appendChild(el);
+
+    const timer = setTimeout(() => el.remove(), 9000);
+    const dismiss = () => {
+      clearTimeout(timer);
+      el.remove();
+    };
+
+    el.querySelector('.rem-close')?.addEventListener('click', dismiss);
+    el.querySelector('.rem-hide')?.addEventListener('click', dismiss);
+    el.querySelector('.rem-tts')?.addEventListener('click', () => speak(card.term, card.lang));
+    el.querySelector('.rem-known')?.addEventListener('click', async () => {
+      dismiss();
+      try {
+        const updated = reviewCard(card, 'good', Date.now());
+        await chrome.runtime.sendMessage({ type: 'UPDATE_VOCAB', payload: { card: updated } });
+      } catch {
+        // ignore
+      }
+    });
   }
 
   function removeBubble() {

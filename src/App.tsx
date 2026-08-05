@@ -24,6 +24,7 @@ function App() {
   const [pageMode, setPageMode] = useState<PageTranslateMode>('replace');
   const [currentHost, setCurrentHost] = useState('');
   const [autoSite, setAutoSite] = useState(false);
+  const [reminderEnabled, setReminderEnabled] = useState(true);
 
   // Load settings on mount
   useEffect(() => {
@@ -109,6 +110,7 @@ function App() {
         setTargetLang(settings.defaultTargetLang);
         setAutoTranslate(settings.autoTranslateOnHighlight);
         setPageMode(settings.pageTranslateMode || 'replace');
+        setReminderEnabled(settings.reminderEnabled !== false);
       }
     } catch {
       // Extension context may not be available during development
@@ -245,6 +247,14 @@ function App() {
     setPageMode(next);
     chrome.runtime
       .sendMessage({ type: 'SAVE_SETTINGS', payload: { pageTranslateMode: next } })
+      .catch(() => {});
+  };
+
+  const toggleReminder = () => {
+    const next = !reminderEnabled;
+    setReminderEnabled(next);
+    chrome.runtime
+      .sendMessage({ type: 'SAVE_SETTINGS', payload: { reminderEnabled: next } })
       .catch(() => {});
   };
 
@@ -466,6 +476,13 @@ function App() {
           title="Tự động dịch cả trang mỗi khi bạn mở site này (nhớ theo tên miền)"
         >
           {autoSite ? '🟢' : '⚪'} Tự dịch {currentHost ? currentHost : 'site này'}
+        </button>
+        <button
+          className={`quick-action-btn ${reminderEnabled ? 'active' : ''}`}
+          onClick={toggleReminder}
+          title="Nhắc ôn từ vựng: hiện toast từ đang học ~10 phút/lần trên tab đang dùng"
+        >
+          {reminderEnabled ? '🔔' : '🔕'} Nhắc học
         </button>
       </div>
 

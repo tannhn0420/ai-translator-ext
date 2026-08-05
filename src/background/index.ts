@@ -237,9 +237,32 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
       return { success: true, data: result };
     }
 
+    case 'GET_REMINDER_CARD':
+      return { success: true, data: { card: await pickReminderCard() } };
+
     default:
       return { success: false, error: 'Unknown message type' };
   }
+}
+
+/**
+ * Pick a card to surface in the in-tab study reminder: a due card first, otherwise a
+ * not-yet-learned (reps < 2) card at random. Returns null when reminders are disabled
+ * or the deck has nothing to show.
+ */
+async function pickReminderCard(): Promise<VocabCard | null> {
+  const settings = await getSettings();
+  if (!settings.reminderEnabled) return null;
+
+  const deck = await getVocab();
+  if (deck.length === 0) return null;
+
+  const now = Date.now();
+  const due = deck.filter((c) => c.due <= now);
+  const pool = due.length > 0 ? due : deck.filter((c) => c.reps < 2);
+  if (pool.length === 0) return null;
+
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 interface ProviderEntry {
