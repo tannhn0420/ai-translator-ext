@@ -183,8 +183,8 @@ Return ONLY a JSON object in EXACTLY this shape (no markdown, no code fences):
 }
 
 Rules:
-- vocab: 10 items (mix single words, phrasal verbs, and common collocations/idioms real speakers use).
-- phrases: 10 items — natural DAILY-SPEAKING expressions for this topic (reactions, requests, small talk, useful chunks), not generic textbook lines.
+- vocab: 20 items (mix single words, phrasal verbs, and common collocations/idioms real speakers use).
+- phrases: 20 items — natural DAILY-SPEAKING expressions for this topic (reactions, requests, small talk, useful chunks), not generic textbook lines.
 - dialogue: a realistic everyday conversation of 12-16 alternating lines (speakers A and B). It should flow like real life: greetings, back-and-forth, follow-up questions, natural reactions and a natural ending. Sentences can vary in length like real speech, but stay speakable.
 - Match the requested level (simpler wording for beginner, richer for advanced) but always sound natural and spoken.
 - IPA must be correct General American. Vietnamese must read naturally.`;

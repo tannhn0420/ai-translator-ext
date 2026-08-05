@@ -161,6 +161,20 @@ body {
 .pr-recent-label { font-size: 12px; color: var(--muted); }
 .pr-recent .pr-chip { border-style: dashed; }
 
+.pr-deck-open { background: rgba(16, 185, 129, 0.18) !important; }
+.pr-deck-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: 13px;
+}
+
 .pr-note, .pr-error, .pr-savemsg {
   border-radius: 10px;
   padding: 10px 12px;

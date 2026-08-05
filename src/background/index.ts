@@ -250,7 +250,7 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
       return { success: true, data: { card: await pickReminderCard() } };
 
     case 'GENERATE_PRACTICE':
-      return await handleGeneratePractice(message as { payload: { topic: string; level?: string } });
+      return await handleGeneratePractice(message as { payload: { topic: string; level?: string; words?: string[] } });
 
     case 'CHAT_TURN':
       return await handleChatTurn(message as { payload: { messages: ChatMessage[]; topic: string; level?: string } });
@@ -725,7 +725,7 @@ function normalizePack(parsed: unknown, topic: string): PracticePack {
   };
 }
 
-async function handleGeneratePractice(request: { payload: { topic: string; level?: string } }): Promise<{
+async function handleGeneratePractice(request: { payload: { topic: string; level?: string; words?: string[] } }): Promise<{
   success: boolean;
   data?: PracticePack;
   error?: string;
@@ -733,6 +733,7 @@ async function handleGeneratePractice(request: { payload: { topic: string; level
   const settings = await getSettings();
   const topic = (request.payload.topic || '').trim();
   const level = request.payload.level || 'intermediate';
+  const words = (request.payload.words || []).filter(Boolean);
   if (!topic) return { success: false, error: 'Hãy nhập chủ đề.' };
 
   const providers = buildProviderList(settings);
@@ -740,7 +741,11 @@ async function handleGeneratePractice(request: { payload: { topic: string; level
     return { success: false, error: 'Chưa cấu hình API Key hoặc Provider không hợp lệ.' };
   }
 
-  const text = `Topic: ${topic}\nLevel: ${level}`;
+  const text =
+    `Topic: ${topic}\nLevel: ${level}` +
+    (words.length
+      ? `\n\nIMPORTANT: The learner is revising these specific words. Make the "vocab" list EXACTLY these words (add correct IPA, a short Vietnamese meaning, and a natural example for each), and write the phrases and the dialogue so they naturally reuse these words: ${words.join(', ')}`
+      : '');
   const activeModel = providers[0]?.model || 'unknown';
 
   if (settings.cacheEnabled) {

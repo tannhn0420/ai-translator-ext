@@ -3,7 +3,7 @@
 // ============================================
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PracticePack, DialogueLine, Language, SpeakingAssessment } from '../types';
+import type { PracticePack, DialogueLine, Language, SpeakingAssessment, VocabCard } from '../types';
 import { isSpeechRecognitionSupported, recognizeOnce, scoreSpeech, type SpeechScore, type RecognitionHandle } from './speech';
 
 const TOPIC_SUGGESTIONS = ['Nhà hàng', 'Sân bay', 'Phỏng vấn xin việc', 'Khách sạn', 'Mua sắm', 'Cuộc họp', 'Du lịch', 'Đi khám bệnh'];
@@ -34,6 +34,17 @@ function youtubeSearchUrl(topic: string) {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(topic + ' english conversation')}`;
 }
 
+function pickDeckWords(deck: VocabCard[], source: string): { words: string[]; label: string } {
+  const now = Date.now();
+  let cards = deck;
+  if (source === 'due') cards = deck.filter((c) => c.due <= now);
+  else if (source !== 'all') cards = deck.filter((c) => (c.topic || 'Chung') === source);
+  if (cards.length === 0) cards = deck;
+  const words = cards.slice(0, 14).map((c) => c.term);
+  const label = source === 'due' ? 'Ôn từ đến hạn' : source === 'all' ? 'Ôn từ vựng' : source;
+  return { words, label };
+}
+
 async function persistPack(key: string, pack: PracticePack, lv: string) {
   try {
     const r = await chrome.storage.local.get({ practicePacks: {} });
@@ -62,6 +73,11 @@ export default function PracticeApp() {
   // Cache of generated packs (instant, token-free topic switching)
   const packCacheRef = useRef<Map<string, PracticePack>>(new Map());
   const [recent, setRecent] = useState<{ key: string; topic: string; level: string }[]>([]);
+
+  // Practice from saved vocabulary
+  const [deck, setDeck] = useState<VocabCard[]>([]);
+  const [deckPicker, setDeckPicker] = useState(false);
+  const [deckSource, setDeckSource] = useState('due');
 
   // TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -148,14 +164,14 @@ export default function PracticeApp() {
     chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { theme: next } }).catch(() => {});
   }
 
-  async function generate(t?: string) {
+  async function generate(t?: string, words?: string[]) {
     const q = (t ?? topic).trim();
     if (!q || loading) return;
     setTopic(q);
     resetModes();
 
-    // Instant + token-free if this topic+level was generated before.
-    const key = packKey(q, level);
+    // Instant + token-free if this exact topic+level (+word set) was generated before.
+    const key = packKey(q, level) + (words?.length ? `|w:${words.slice(0, 12).join(',')}` : '');
     const cached = packCacheRef.current.get(key);
     if (cached) {
       setPack(cached);
@@ -165,13 +181,15 @@ export default function PracticeApp() {
     setLoading(true);
     setPack(null);
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'GENERATE_PRACTICE', payload: { topic: q, level } });
+      const res = await chrome.runtime.sendMessage({ type: 'GENERATE_PRACTICE', payload: { topic: q, level, words } });
       if (res?.success && res.data) {
         const pack = res.data as PracticePack;
         setPack(pack);
         packCacheRef.current.set(key, pack);
         void persistPack(key, pack, level);
-        setRecent((prev) => [{ key, topic: q, level }, ...prev.filter((r) => r.key !== key)].slice(0, 12));
+        if (!words?.length) {
+          setRecent((prev) => [{ key, topic: q, level }, ...prev.filter((r) => r.key !== key)].slice(0, 12));
+        }
       } else {
         setError(res?.error || 'Không tạo được bài luyện.');
       }
@@ -179,6 +197,28 @@ export default function PracticeApp() {
       setError('Không kết nối được. Kiểm tra API key / reload extension.');
     }
     setLoading(false);
+  }
+
+  async function openDeckPicker() {
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'GET_VOCAB' });
+      const cards = (res?.data as VocabCard[]) || [];
+      if (cards.length === 0) {
+        setError('Sổ từ vựng chưa có từ nào — hãy lưu vài từ trước.');
+        return;
+      }
+      setDeck(cards);
+      setError('');
+      setDeckPicker(true);
+    } catch {
+      setError('Không đọc được sổ từ vựng.');
+    }
+  }
+
+  async function generateFromDeck() {
+    const { words, label } = pickDeckWords(deck, deckSource);
+    setDeckPicker(false);
+    await generate(label, words);
   }
 
   function switchTo(r: { key: string; topic: string; level: string }) {
@@ -263,7 +303,32 @@ export default function PracticeApp() {
           >
             🎓 IELTS Speaking
           </button>
+          <button
+            className="pr-generate pr-deck-open"
+            onClick={openDeckPicker}
+            disabled={loading}
+            title="Tạo bài luyện từ chính các từ đã lưu trong sổ"
+          >
+            📇 Từ sổ
+          </button>
         </div>
+
+        {deckPicker && (
+          <div className="pr-deck-picker">
+            <span>Luyện nói từ sổ:</span>
+            <select className="pr-select" value={deckSource} onChange={(e) => setDeckSource(e.target.value)}>
+              <option value="due">Từ đến hạn</option>
+              <option value="all">Tất cả</option>
+              {Array.from(new Set(deck.map((c) => c.topic || 'Chung'))).map((t) => (
+                <option key={t} value={t}>Chủ đề: {t}</option>
+              ))}
+            </select>
+            <button className="pr-generate" onClick={generateFromDeck} disabled={loading}>
+              {loading ? 'Đang tạo…' : '✨ Tạo'}
+            </button>
+            <button className="pr-act" onClick={() => setDeckPicker(false)}>Huỷ</button>
+          </div>
+        )}
         <div className="pr-chips">
           {TOPIC_SUGGESTIONS.map((s) => (
             <button key={s} className="pr-chip" onClick={() => generate(s)} disabled={loading}>{s}</button>
