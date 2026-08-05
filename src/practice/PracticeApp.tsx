@@ -59,6 +59,17 @@ function isToday(dateStr: string): boolean {
   return dateStr === new Date().toISOString().slice(0, 10);
 }
 
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function lastNDates(n: number): string[] {
+  const out: string[] = [];
+  const now = Date.now();
+  for (let i = n - 1; i >= 0; i--) out.push(new Date(now - i * 86_400_000).toISOString().slice(0, 10));
+  return out;
+}
+
 function pickDeckWords(deck: VocabCard[], source: string): { words: string[]; label: string } {
   const now = Date.now();
   let cards = deck;
@@ -93,6 +104,8 @@ export default function PracticeApp() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [todayTopic, setTodayTopic] = useState('');
   const [dailyStats, setDailyStats] = useState<{ lastDone: string; streak: number }>({ lastDone: '', streak: 0 });
+  const [dashOpen, setDashOpen] = useState(false);
+  const [daysData, setDaysData] = useState<Record<string, { attempts: number; sumScore: number }>>({});
   const [packTab, setPackTab] = useState<'vocab' | 'phrases' | 'dialogue' | 'passage'>('vocab');
   const [rolePlay, setRolePlay] = useState(false);
   const [dictOpen, setDictOpen] = useState(false);
@@ -139,6 +152,10 @@ export default function PracticeApp() {
         setDailyStats(r.dailyChallenge as { lastDone: string; streak: number });
       } catch { /* ignore */ }
       try {
+        const r = await chrome.storage.local.get({ practiceDays: {} });
+        setDaysData((r.practiceDays || {}) as Record<string, { attempts: number; sumScore: number }>);
+      } catch { /* ignore */ }
+      try {
         const r = await chrome.storage.local.get({ practicePacks: {} });
         const saved = (r.practicePacks || {}) as Record<string, { pack: PracticePack; level: string; at: number }>;
         const entries = Object.entries(saved).sort((a, b) => b[1].at - a[1].at);
@@ -183,6 +200,15 @@ export default function PracticeApp() {
         next.lastDate = today;
       }
       chrome.storage.local.set({ practiceStats: next }).catch(() => {});
+      return next;
+    });
+
+    // Per-day activity for the progress dashboard.
+    setDaysData((prev) => {
+      const d = todayStr();
+      const cur = prev[d] || { attempts: 0, sumScore: 0 };
+      const next = { ...prev, [d]: { attempts: cur.attempts + 1, sumScore: cur.sumScore + score } };
+      chrome.storage.local.set({ practiceDays: next }).catch(() => {});
       return next;
     });
 
@@ -328,6 +354,7 @@ export default function PracticeApp() {
               <span>📊 TB {avg}%</span>
             </div>
           )}
+          <button className="pr-theme" onClick={() => { resetModes(); setDashOpen(true); }} title="Tiến độ luyện tập">📈</button>
           <button className="pr-theme" onClick={toggleTheme} title="Đổi giao diện sáng/tối">
             {theme === 'dark' ? '☀️' : '🌙'}
           </button>
@@ -457,7 +484,11 @@ export default function PracticeApp() {
         <DrillMode speak={speak} onScore={recordScore} onExit={() => setDrillOpen(false)} />
       )}
 
-      {!chatOpen && !ieltsOpen && !drillOpen && pack && (
+      {dashOpen && (
+        <Dashboard stats={stats} daysData={daysData} dailyStats={dailyStats} onExit={() => setDashOpen(false)} />
+      )}
+
+      {!chatOpen && !ieltsOpen && !drillOpen && !dashOpen && pack && (
         <div className="pr-content">
           <div className="pr-packtabs">
             {([
@@ -557,7 +588,7 @@ export default function PracticeApp() {
         </div>
       )}
 
-      {!chatOpen && !ieltsOpen && !drillOpen && !pack && !loading && !error && (
+      {!chatOpen && !ieltsOpen && !drillOpen && !dashOpen && !pack && !loading && !error && (
         <div className="pr-empty">
           <div className="pr-empty-emoji">🗣️</div>
           <p>Chọn hoặc nhập một chủ đề để bắt đầu luyện <b>nói</b> &amp; <b>nghe</b>, hoặc bấm <b>🤖 Trò chuyện</b>.</p>
@@ -1386,6 +1417,61 @@ function VocabItem({ v, speak }: { v: PracticeVocab; speak: (text: string, lang?
       {v.ipa && <div className="pr-vocab-ipa">/{v.ipa.replace(/^\/|\/$/g, '')}/</div>}
       <div className="pr-vocab-meaning">{v.meaning}</div>
       {v.example && <div className="pr-vocab-ex">“{v.example}”</div>}
+    </div>
+  );
+}
+
+// ---- Progress dashboard ----
+
+function Dashboard({
+  stats,
+  daysData,
+  dailyStats,
+  onExit,
+}: {
+  stats: PracticeStats;
+  daysData: Record<string, { attempts: number; sumScore: number }>;
+  dailyStats: { lastDone: string; streak: number };
+  onExit: () => void;
+}) {
+  const days = lastNDates(14);
+  const maxAttempts = Math.max(1, ...days.map((d) => daysData[d]?.attempts || 0));
+  const totalDays = Object.keys(daysData).length;
+  const avg = stats.attempts > 0 ? Math.round(stats.sumScore / stats.attempts) : 0;
+
+  return (
+    <div className="pr-ielts">
+      <div className="pr-chat-head">
+        <span>📈 Tiến độ luyện tập</span>
+        <button className="pr-act" onClick={onExit}>Thoát</button>
+      </div>
+
+      <div className="pr-dash-stats">
+        <div className="pr-dash-stat"><b>🔥 {dailyStats.streak}</b><span>Ngày liên tiếp</span></div>
+        <div className="pr-dash-stat"><b>🗣️ {stats.attempts}</b><span>Tổng lượt</span></div>
+        <div className="pr-dash-stat"><b>📊 {avg}%</b><span>Điểm TB</span></div>
+        <div className="pr-dash-stat"><b>📅 {totalDays}</b><span>Ngày đã luyện</span></div>
+      </div>
+
+      <div className="pr-dash-chart-title">Hoạt động 14 ngày gần nhất</div>
+      <div className="pr-dash-chart">
+        {days.map((d) => {
+          const cur = daysData[d] || { attempts: 0, sumScore: 0 };
+          const h = cur.attempts ? Math.max(8, Math.round((cur.attempts / maxAttempts) * 100)) : 0;
+          const dayAvg = cur.attempts ? cur.sumScore / cur.attempts : 0;
+          const cls = cur.attempts === 0 ? 'empty' : dayAvg >= 70 ? 'good' : 'mid';
+          return (
+            <div className="pr-bar-col" key={d} title={`${d}: ${cur.attempts} lượt${cur.attempts ? `, TB ${Math.round(dayAvg)}%` : ''}`}>
+              <div className="pr-bar-wrap"><div className={`pr-bar ${cls}`} style={{ height: `${h}%` }} /></div>
+              <div className="pr-bar-label">{d.slice(8)}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {stats.attempts === 0 && (
+        <div className="pr-empty" style={{ padding: '20px' }}>Chưa có dữ liệu — hãy luyện vài câu để xem tiến độ!</div>
+      )}
     </div>
   );
 }
