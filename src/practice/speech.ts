@@ -20,6 +20,7 @@ export interface RecognitionHandle {
 export function recognizeOnce(
   lang: string,
   onPartial: (text: string) => void,
+  opts: { continuous?: boolean } = {},
 ): { promise: Promise<string>; handle: RecognitionHandle } {
   const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
   if (!SR) {
@@ -33,7 +34,7 @@ export function recognizeOnce(
   rec.lang = lang;
   rec.interimResults = true;
   rec.maxAlternatives = 1;
-  rec.continuous = false;
+  rec.continuous = !!opts.continuous;
 
   let finalText = '';
   const promise = new Promise<string>((resolve, reject) => {

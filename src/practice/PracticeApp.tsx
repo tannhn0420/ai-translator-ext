@@ -3,8 +3,8 @@
 // ============================================
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PracticePack, DialogueLine, Language } from '../types';
-import { isSpeechRecognitionSupported, recognizeOnce, scoreSpeech, type SpeechScore } from './speech';
+import type { PracticePack, DialogueLine, Language, SpeakingAssessment } from '../types';
+import { isSpeechRecognitionSupported, recognizeOnce, scoreSpeech, type SpeechScore, type RecognitionHandle } from './speech';
 
 const TOPIC_SUGGESTIONS = ['Nhà hàng', 'Sân bay', 'Phỏng vấn xin việc', 'Khách sạn', 'Mua sắm', 'Cuộc họp', 'Du lịch', 'Đi khám bệnh'];
 const LEVELS: { key: string; label: string }[] = [
@@ -44,6 +44,7 @@ export default function PracticeApp() {
   const [stats, setStats] = useState<PracticeStats>(EMPTY_STATS);
   const [rolePlay, setRolePlay] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [ieltsOpen, setIeltsOpen] = useState(false);
 
   // TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -174,6 +175,14 @@ export default function PracticeApp() {
           >
             🤖 Trò chuyện
           </button>
+          <button
+            className="pr-generate pr-ielts-open"
+            onClick={() => topic.trim() && setIeltsOpen(true)}
+            disabled={!topic.trim() || !SR_SUPPORTED}
+            title={SR_SUPPORTED ? 'Nói tự do và được chấm theo 4 tiêu chí IELTS' : 'Trình duyệt không hỗ trợ mic'}
+          >
+            🎓 IELTS Speaking
+          </button>
         </div>
         <div className="pr-chips">
           {TOPIC_SUGGESTIONS.map((s) => (
@@ -197,7 +206,11 @@ export default function PracticeApp() {
         <ChatMode topic={topic} level={level} speak={speak} onExit={() => setChatOpen(false)} />
       )}
 
-      {!chatOpen && pack && (
+      {ieltsOpen && (
+        <IeltsMode topic={topic} speak={speak} onExit={() => setIeltsOpen(false)} />
+      )}
+
+      {!chatOpen && !ieltsOpen && pack && (
         <div className="pr-content">
           {/* Vocab */}
           {pack.vocab.length > 0 && (
@@ -258,7 +271,7 @@ export default function PracticeApp() {
         </div>
       )}
 
-      {!chatOpen && !pack && !loading && !error && (
+      {!chatOpen && !ieltsOpen && !pack && !loading && !error && (
         <div className="pr-empty">
           <div className="pr-empty-emoji">🗣️</div>
           <p>Chọn hoặc nhập một chủ đề để bắt đầu luyện <b>nói</b> &amp; <b>nghe</b>, hoặc bấm <b>🤖 Trò chuyện</b>.</p>
@@ -379,6 +392,147 @@ function ChatMode({
         >
           {recognizing ? '● Đang nghe… (bấm để dừng)' : '🎤 Nói'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- IELTS Speaking: free answer → 4-criteria assessment ----
+
+const IELTS_CRITERIA: { key: keyof SpeakingAssessment['criteria']; label: string }[] = [
+  { key: 'fluency', label: 'Fluency & Coherence' },
+  { key: 'lexical', label: 'Lexical Resource' },
+  { key: 'grammar', label: 'Grammatical Range & Accuracy' },
+  { key: 'pronunciation', label: 'Pronunciation' },
+];
+
+function bandClass(b: number): string {
+  return b >= 7 ? 'good' : b >= 5.5 ? 'mid' : 'low';
+}
+
+function IeltsMode({
+  topic,
+  speak,
+  onExit,
+}: {
+  topic: string;
+  speak: (text: string, lang?: Language) => void;
+  onExit: () => void;
+}) {
+  const [recording, setRecording] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [assessing, setAssessing] = useState(false);
+  const [assessment, setAssessment] = useState<SpeakingAssessment | null>(null);
+  const [error, setError] = useState('');
+  const recRef = useRef<RecognitionHandle | null>(null);
+
+  const cueQuestion = `Talk about ${topic}`;
+  const cueBullets = ['what it is / what happens', 'when or where it happens', 'why it matters to you', 'how you feel about it'];
+
+  function startRec() {
+    setAssessment(null);
+    setError('');
+    setTranscript('');
+    setRecording(true);
+    const { promise, handle } = recognizeOnce('en-US', setTranscript, { continuous: true });
+    recRef.current = handle;
+    promise
+      .then((final) => { if (final) setTranscript(final); })
+      .catch(() => {})
+      .finally(() => setRecording(false));
+  }
+
+  function stopRec() {
+    recRef.current?.stop();
+  }
+
+  async function assess() {
+    if (!transcript.trim()) return;
+    setAssessing(true);
+    setError('');
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'ASSESS_SPEAKING', payload: { transcript, question: cueQuestion } });
+      if (res?.success && res.data) setAssessment(res.data as SpeakingAssessment);
+      else setError(res?.error || 'Không chấm được.');
+    } catch {
+      setError('Lỗi kết nối.');
+    }
+    setAssessing(false);
+  }
+
+  return (
+    <div className="pr-ielts">
+      <div className="pr-chat-head">
+        <span>🎓 IELTS Speaking · {topic}</span>
+        <button className="pr-act" onClick={onExit}>Thoát</button>
+      </div>
+
+      <div className="pr-cue">
+        <div className="pr-cue-title">Talk about <b>{topic}</b>.</div>
+        <div className="pr-cue-sub">You should say:</div>
+        <ul>{cueBullets.map((b, i) => <li key={i}>{b}</li>)}</ul>
+        <div className="pr-cue-hint">Nói tự do 1–2 phút, rồi bấm chấm điểm.</div>
+      </div>
+
+      <div className="pr-ielts-record">
+        {!recording ? (
+          <button className="pr-generate" onClick={startRec}>🎤 {transcript ? 'Nói lại' : 'Bắt đầu nói'}</button>
+        ) : (
+          <button className="pr-generate rec" onClick={stopRec}>■ Dừng ghi</button>
+        )}
+        {transcript && !recording && (
+          <button className="pr-generate pr-ielts-open" onClick={assess} disabled={assessing}>
+            {assessing ? 'Đang chấm…' : '📝 Chấm điểm IELTS'}
+          </button>
+        )}
+      </div>
+
+      {transcript && <div className="pr-answer">“{transcript}”</div>}
+      {error && <div className="pr-error">⚠️ {error}</div>}
+      {assessing && <div className="pr-loading"><div className="pr-spinner" /> Giám khảo AI đang chấm theo 4 tiêu chí…</div>}
+      {assessment && <AssessmentCard a={assessment} speak={speak} />}
+    </div>
+  );
+}
+
+function AssessmentCard({ a, speak }: { a: SpeakingAssessment; speak: (text: string, lang?: Language) => void }) {
+  return (
+    <div className="pr-assess">
+      <div className="pr-assess-overall">
+        <div className={`pr-band ${bandClass(a.overall)}`}>{a.overall.toFixed(1)}</div>
+        <div className="pr-assess-overall-label">Band tổng<br /><span>(ước lượng)</span></div>
+      </div>
+
+      <div className="pr-assess-crit">
+        {IELTS_CRITERIA.map((c) => {
+          const cs = a.criteria[c.key];
+          return (
+            <div className="pr-crit" key={c.key}>
+              <div className="pr-crit-head">
+                <span>{c.label}</span>
+                <span className={`pr-band sm ${bandClass(cs.band)}`}>{cs.band.toFixed(1)}</span>
+              </div>
+              <div className="pr-crit-comment">{cs.comment}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {a.strengths.length > 0 && (
+        <div className="pr-assess-list"><h4>✅ Điểm mạnh</h4><ul>{a.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul></div>
+      )}
+      {a.improvements.length > 0 && (
+        <div className="pr-assess-list"><h4>🎯 Cần cải thiện</h4><ul>{a.improvements.map((s, i) => <li key={i}>{s}</li>)}</ul></div>
+      )}
+      {a.better && (
+        <div className="pr-assess-model">
+          <h4>💬 Câu trả lời mẫu (Band 8+) <button className="pr-mini" title="Nghe" onClick={() => speak(a.better, 'en')}>🔊</button></h4>
+          <p>{a.better}</p>
+        </div>
+      )}
+
+      <div className="pr-note" style={{ marginTop: 10 }}>
+        Lưu ý: điểm <b>Pronunciation</b> chỉ ước lượng từ bản ghi giọng nói tự động — không thay thế giám khảo thật.
       </div>
     </div>
   );

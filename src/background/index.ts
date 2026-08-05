@@ -15,6 +15,7 @@ import type {
   VocabCardInput,
   PracticePack,
   ChatMessage,
+  SpeakingAssessment,
 } from '../types';
 import {
   getSettings,
@@ -51,6 +52,8 @@ import {
   PRACTICE_TEMPLATE,
   CHAT_SYSTEM_PROMPT,
   CHAT_TEMPLATE,
+  IELTS_SPEAKING_SYSTEM,
+  IELTS_SPEAKING_TEMPLATE,
 } from '../utils/constants';
 
 // Listen for messages from popup, options, and content scripts
@@ -251,6 +254,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
 
     case 'CHAT_TURN':
       return await handleChatTurn(message as { payload: { messages: ChatMessage[]; topic: string; level?: string } });
+
+    case 'ASSESS_SPEAKING':
+      return await handleAssessSpeaking(message as { payload: { transcript: string; question: string } });
 
     default:
       return { success: false, error: 'Unknown message type' };
@@ -829,6 +835,69 @@ async function handleChatTurn(request: { payload: { messages: ChatMessage[]; top
 
   await incrementStats();
   return { success: true, data: { reply, correction: correction || undefined } };
+}
+
+function clampBand(n: unknown): number {
+  const v = typeof n === 'number' ? n : parseFloat(String(n));
+  if (Number.isNaN(v)) return 0;
+  return Math.max(0, Math.min(9, Math.round(v * 2) / 2));
+}
+
+async function handleAssessSpeaking(request: { payload: { transcript: string; question: string } }): Promise<{
+  success: boolean;
+  data?: SpeakingAssessment;
+  error?: string;
+}> {
+  const settings = await getSettings();
+  const transcript = (request.payload.transcript || '').trim();
+  const question = (request.payload.question || '').trim();
+  if (!transcript) return { success: false, error: 'Chưa có nội dung nói để chấm.' };
+
+  const providers = buildProviderList(settings);
+  if (!providers.some((p) => p.key)) {
+    return { success: false, error: 'Chưa cấu hình API Key hoặc Provider không hợp lệ.' };
+  }
+
+  const text = `Speaking prompt: ${question || '(general topic)'}\n\nCandidate's spoken answer (auto-transcribed):\n"""\n${transcript}\n"""`;
+
+  let raw = '';
+  let lastError: Error | null = null;
+  for (const p of providers) {
+    if (!p.key) continue;
+    try {
+      await pace();
+      raw = await callProvider(p, text, 'auto', 'vi', IELTS_SPEAKING_SYSTEM, IELTS_SPEAKING_TEMPLATE, PAGE_BATCH_MAX_OUTPUT_TOKENS);
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err as Error;
+    }
+  }
+  if (!raw) return { success: false, error: lastError?.message || 'Không chấm được.' };
+
+  const parsed = extractJson(raw);
+  if (!parsed || typeof parsed !== 'object') return { success: false, error: 'Kết quả chấm không hợp lệ, thử lại.' };
+
+  const o = parsed as Record<string, unknown>;
+  const crit = (o.criteria || {}) as Record<string, { band?: unknown; comment?: unknown }>;
+  const c = (k: string) => ({ band: clampBand(crit[k]?.band), comment: String(crit[k]?.comment || '') });
+  const arr = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x)).filter(Boolean) : []);
+
+  const assessment: SpeakingAssessment = {
+    overall: clampBand(o.overall),
+    criteria: {
+      fluency: c('fluency'),
+      lexical: c('lexical'),
+      grammar: c('grammar'),
+      pronunciation: c('pronunciation'),
+    },
+    strengths: arr(o.strengths),
+    improvements: arr(o.improvements),
+    better: String(o.better || ''),
+  };
+
+  await incrementStats();
+  return { success: true, data: assessment };
 }
 
 // ============================================

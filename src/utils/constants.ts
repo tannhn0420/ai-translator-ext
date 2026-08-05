@@ -201,6 +201,37 @@ Give your NEXT single turn only — 1-2 short, natural spoken sentences. Usually
 
 Return ONLY JSON (no code fences): {"reply":"<your spoken reply in English>","correction":"<short Vietnamese note, or empty string>"}`;
 
+// ============================================
+// IELTS speaking assessment
+// ============================================
+
+export const IELTS_SPEAKING_SYSTEM = `You are a certified IELTS Speaking examiner. Assess the candidate's spoken answer strictly against the official IELTS Speaking band descriptors, scoring EACH of the four criteria separately, in 0.5 steps from 0 to 9:
+
+1. Fluency & Coherence — flow, speed, hesitation, self-correction, use of cohesive devices/discourse markers, topic development.
+2. Lexical Resource — range and precision of vocabulary, idiomatic and less-common items, paraphrase, collocation.
+3. Grammatical Range & Accuracy — variety of structures, error frequency, complex vs simple sentences.
+4. Pronunciation — clarity, stress, rhythm, intonation, intelligibility.
+
+Overall band ≈ the average of the four (rounded to the nearest 0.5). Be accurate and specific: quote the candidate's own words when justifying a score, and give actionable advice.
+
+IMPORTANT HONESTY RULE: the answer is an AUTOMATIC speech-to-text transcript, so you cannot truly hear the audio. Judge Pronunciation cautiously — infer only from obviously dropped/garbled words and word choice — and say in its comment that this score is an approximation. Judge Fluency partly from hesitation markers and repetition visible in the transcript. All feedback text (comments, strengths, improvements) must be in Vietnamese.`;
+
+export const IELTS_SPEAKING_TEMPLATE = `{text}
+
+Assess the answer above against the four IELTS Speaking criteria. Return ONLY JSON (no code fences, no commentary):
+{
+  "overall": <number 0-9 in 0.5 steps>,
+  "criteria": {
+    "fluency":       { "band": <number>, "comment": "<Vietnamese, specific, cite words>" },
+    "lexical":       { "band": <number>, "comment": "<Vietnamese>" },
+    "grammar":       { "band": <number>, "comment": "<Vietnamese, note key errors>" },
+    "pronunciation": { "band": <number>, "comment": "<Vietnamese, note this is approximate from transcript>" }
+  },
+  "strengths":    ["<Vietnamese>", "..."],
+  "improvements": ["<Vietnamese, actionable>", "..."],
+  "better": "<a natural Band 8+ model answer in English to the same prompt>"
+}`;
+
 export const PRESET_PROMPTS = [
   {
     id: 'accurate',

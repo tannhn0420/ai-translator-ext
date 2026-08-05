@@ -51,7 +51,8 @@ export type MessageType =
   | 'IMPORT_VOCAB'
   | 'GET_REMINDER_CARD'
   | 'GENERATE_PRACTICE'
-  | 'CHAT_TURN';
+  | 'CHAT_TURN'
+  | 'ASSESS_SPEAKING';
 
 export interface ChromeMessage {
   type: MessageType;
@@ -239,6 +240,24 @@ export interface PracticePack {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
+}
+
+// IELTS-style speaking assessment (4 official criteria)
+export interface CriterionScore {
+  band: number;
+  comment: string;
+}
+export interface SpeakingAssessment {
+  overall: number;
+  criteria: {
+    fluency: CriterionScore;
+    lexical: CriterionScore;
+    grammar: CriterionScore;
+    pronunciation: CriterionScore;
+  };
+  strengths: string[];
+  improvements: string[];
+  better: string;
 }
 
 // Gemini API types
