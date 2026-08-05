@@ -68,6 +68,8 @@ export default function PracticeApp() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [rolePlay, setRolePlay] = useState(false);
   const [dictOpen, setDictOpen] = useState(false);
+  const [passageDict, setPassageDict] = useState(false);
+  const [showPassageVi, setShowPassageVi] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [ieltsOpen, setIeltsOpen] = useState(false);
 
@@ -153,10 +155,19 @@ export default function PracticeApp() {
   function resetModes() {
     setRolePlay(false);
     setDictOpen(false);
+    setPassageDict(false);
     setChatOpen(false);
     setIeltsOpen(false);
     setSaveMsg('');
     setError('');
+  }
+
+  function playPassage(sents: { en: string }[]) {
+    let i = 0;
+    const playNext = () => {
+      if (i < sents.length) speak(sents[i++].en, 'en', playNext);
+    };
+    playNext();
   }
 
   function toggleTheme() {
@@ -427,6 +438,34 @@ export default function PracticeApp() {
                 pack.dialogue.map((d: DialogueLine, i) => (
                   <PracticeLine key={i} en={d.en} vi={d.vi} speaker={d.speaker} onSpeak={speak} onScore={recordScore} />
                 ))
+              )}
+            </section>
+          )}
+
+          {/* Listening passage (monologue) */}
+          {pack.passage && pack.passage.length > 0 && (
+            <section className="pr-section">
+              <div className="pr-section-head">
+                <h2>Bài nghe (đoạn văn)</h2>
+                {!passageDict && (
+                  <div className="pr-head-actions">
+                    <button className="pr-act" onClick={() => playPassage(pack.passage)}>🔊 Nghe cả bài</button>
+                    <button className="pr-act" onClick={() => setShowPassageVi((v) => !v)}>🇻🇳 Dịch</button>
+                    <button className="pr-save" onClick={() => setPassageDict(true)}>🎧 Chép chính tả</button>
+                  </div>
+                )}
+              </div>
+              {passageDict ? (
+                <DictationMode segments={pack.passage} speak={speak} onScore={recordScore} onExit={() => setPassageDict(false)} />
+              ) : (
+                <div className="pr-passage">
+                  {pack.passage.map((s, i) => (
+                    <span key={i}>
+                      <span className="pr-passage-sent" onClick={() => speak(s.en, 'en')} title="Bấm để nghe">{s.en}</span>
+                      {showPassageVi && <span className="pr-passage-vi"> ({s.vi})</span>}{' '}
+                    </span>
+                  ))}
+                </div>
               )}
             </section>
           )}
@@ -708,7 +747,7 @@ function DictationMode({
   onScore,
   onExit,
 }: {
-  segments: DialogueLine[];
+  segments: { en: string; vi: string; speaker?: string }[];
   speak: (text: string, lang?: Language, onEnd?: () => void, rate?: number) => void;
   onScore: (score: number) => void;
   onExit: () => void;

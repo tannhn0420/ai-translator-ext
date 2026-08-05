@@ -722,6 +722,12 @@ function normalizePack(parsed: unknown, topic: string): PracticePack {
         return { speaker: str(o.speaker) || 'A', en: str(o.en), vi: str(o.vi) };
       })
       .filter((v) => v.en),
+    passage: arr(p.passage)
+      .map((x) => {
+        const o = (x || {}) as Record<string, unknown>;
+        return { en: str(o.en), vi: str(o.vi) };
+      })
+      .filter((v) => v.en),
   };
 }
 
@@ -749,7 +755,7 @@ async function handleGeneratePractice(request: { payload: { topic: string; level
   const activeModel = providers[0]?.model || 'unknown';
 
   if (settings.cacheEnabled) {
-    const cached = await getCachedTranslation(makeCacheKey(text, 'vi', activeModel, 'practice2'));
+    const cached = await getCachedTranslation(makeCacheKey(text, 'vi', activeModel, 'practice3'));
     if (cached) {
       try {
         return { success: true, data: JSON.parse(cached) as PracticePack };
@@ -786,7 +792,7 @@ async function handleGeneratePractice(request: { payload: { topic: string; level
   }
 
   if (settings.cacheEnabled) {
-    await setCachedTranslation(makeCacheKey(text, 'vi', usedModel, 'practice2'), JSON.stringify(pack));
+    await setCachedTranslation(makeCacheKey(text, 'vi', usedModel, 'practice3'), JSON.stringify(pack));
   }
   await incrementStats();
   return { success: true, data: pack };

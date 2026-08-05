@@ -238,6 +238,7 @@ export interface PracticePack {
   vocab: PracticeVocab[];
   phrases: PracticePhrase[];
   dialogue: DialogueLine[];
+  passage: PracticePhrase[]; // a short spoken monologue, one sentence per item
 }
 
 export interface ChatMessage {

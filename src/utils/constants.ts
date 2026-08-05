@@ -179,13 +179,15 @@ Return ONLY a JSON object in EXACTLY this shape (no markdown, no code fences):
 {
   "vocab": [ { "term": "<word or short phrase>", "ipa": "<IPA without slashes>", "meaning": "<short Vietnamese meaning>", "example": "<natural English example sentence>" } ],
   "phrases": [ { "en": "<useful everyday spoken sentence for this topic>", "vi": "<Vietnamese translation>" } ],
-  "dialogue": [ { "speaker": "A", "en": "<a natural line of everyday conversation>", "vi": "<Vietnamese translation>" } ]
+  "dialogue": [ { "speaker": "A", "en": "<a natural line of everyday conversation>", "vi": "<Vietnamese translation>" } ],
+  "passage": [ { "en": "<one sentence of a short spoken monologue about the topic>", "vi": "<Vietnamese translation>" } ]
 }
 
 Rules:
 - vocab: 20 items (mix single words, phrasal verbs, and common collocations/idioms real speakers use).
 - phrases: 20 items — natural DAILY-SPEAKING expressions for this topic (reactions, requests, small talk, useful chunks), not generic textbook lines.
 - dialogue: a realistic everyday conversation of 12-16 alternating lines (speakers A and B). It should flow like real life: greetings, back-and-forth, follow-up questions, natural reactions and a natural ending. Sentences can vary in length like real speech, but stay speakable.
+- passage: a coherent, natural spoken MONOLOGUE about the topic (someone talking about it in the first person) of 8-12 sentences, split into ONE sentence per array item. Clear but natural — ideal for listening and dictation.
 - Match the requested level (simpler wording for beginner, richer for advanced) but always sound natural and spoken.
 - IPA must be correct General American. Vietnamese must read naturally.`;
 
