@@ -15,6 +15,25 @@ const LEVELS: { key: string; label: string }[] = [
 
 const SR_SUPPORTED = isSpeechRecognitionSupported();
 
+interface PracticeStats {
+  attempts: number;
+  sumScore: number;
+  streak: number;
+  lastDate: string;
+}
+const EMPTY_STATS: PracticeStats = { attempts: 0, sumScore: 0, streak: 0, lastDate: '' };
+
+function openUrl(url: string) {
+  chrome.tabs.create({ url });
+}
+
+function youglishUrl(term: string) {
+  return `https://youglish.com/pronounce/${encodeURIComponent(term)}/english`;
+}
+function youtubeSearchUrl(topic: string) {
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(topic + ' english conversation')}`;
+}
+
 export default function PracticeApp() {
   const [topic, setTopic] = useState('');
   const [level, setLevel] = useState('intermediate');
@@ -22,6 +41,8 @@ export default function PracticeApp() {
   const [pack, setPack] = useState<PracticePack | null>(null);
   const [error, setError] = useState('');
   const [saveMsg, setSaveMsg] = useState('');
+  const [stats, setStats] = useState<PracticeStats>(EMPTY_STATS);
+  const [rolePlay, setRolePlay] = useState(false);
 
   // TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -36,13 +57,17 @@ export default function PracticeApp() {
         const s = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
         if (s?.data) ttsRef.current = { en: s.data.ttsVoiceEn || '', vi: s.data.ttsVoiceVi || '', rate: s.data.ttsRate || 0.95 };
       } catch { /* ignore */ }
+      try {
+        const r = await chrome.storage.local.get({ practiceStats: EMPTY_STATS });
+        setStats(r.practiceStats as PracticeStats);
+      } catch { /* ignore */ }
     })();
     return () => {
       if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = null;
     };
   }, []);
 
-  function speak(text: string, lang: Language = 'en') {
+  function speak(text: string, lang: Language = 'en', onEnd?: () => void) {
     if (!('speechSynthesis' in window) || !text) return;
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
@@ -51,7 +76,22 @@ export default function PracticeApp() {
     if (v) u.voice = v;
     else u.lang = lang === 'vi' ? 'vi-VN' : 'en-US';
     u.rate = ttsRef.current.rate || 0.95;
+    if (onEnd) u.onend = onEnd;
     window.speechSynthesis.speak(u);
+  }
+
+  async function recordScore(score: number) {
+    setStats((prev) => {
+      const today = new Date().toISOString().slice(0, 10);
+      const next: PracticeStats = { ...prev, attempts: prev.attempts + 1, sumScore: prev.sumScore + score };
+      if (prev.lastDate !== today) {
+        const y = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+        next.streak = prev.lastDate === y ? prev.streak + 1 : 1;
+        next.lastDate = today;
+      }
+      chrome.storage.local.set({ practiceStats: next }).catch(() => {});
+      return next;
+    });
   }
 
   async function generate(t?: string) {
@@ -62,6 +102,7 @@ export default function PracticeApp() {
     setError('');
     setPack(null);
     setSaveMsg('');
+    setRolePlay(false);
     try {
       const res = await chrome.runtime.sendMessage({ type: 'GENERATE_PRACTICE', payload: { topic: q, level } });
       if (res?.success && res.data) setPack(res.data as PracticePack);
@@ -92,12 +133,20 @@ export default function PracticeApp() {
   }
 
   const canGenerate = topic.trim().length > 0 && !loading;
+  const avg = stats.attempts > 0 ? Math.round(stats.sumScore / stats.attempts) : 0;
 
   return (
     <div className="pr-app">
       <header className="pr-header">
         <span className="pr-logo">🎯</span>
         <h1>Luyện tập theo chủ đề</h1>
+        {stats.attempts > 0 && (
+          <div className="pr-stats">
+            <span>🔥 {stats.streak} ngày</span>
+            <span>🗣️ {stats.attempts} lượt</span>
+            <span>📊 TB {avg}%</span>
+          </div>
+        )}
       </header>
 
       {/* Topic bar */}
@@ -131,7 +180,7 @@ export default function PracticeApp() {
 
       {loading && (
         <div className="pr-loading">
-          <div className="pr-spinner" /> Đang soạn từ vựng, mẫu câu & hội thoại cho “{topic}”…
+          <div className="pr-spinner" /> Đang soạn từ vựng, mẫu câu &amp; hội thoại cho “{topic}”…
         </div>
       )}
 
@@ -142,7 +191,10 @@ export default function PracticeApp() {
             <section className="pr-section">
               <div className="pr-section-head">
                 <h2>Từ vựng</h2>
-                <button className="pr-save" onClick={saveVocab}>📇 Lưu tất cả vào sổ</button>
+                <div className="pr-head-actions">
+                  <button className="pr-act" onClick={() => openUrl(youtubeSearchUrl(pack.topic))} title="Xem video hội thoại chủ đề này trên YouTube">📺 Video chủ đề</button>
+                  <button className="pr-save" onClick={saveVocab}>📇 Lưu tất cả vào sổ</button>
+                </div>
               </div>
               {saveMsg && <div className="pr-savemsg">{saveMsg}</div>}
               <div className="pr-vocab-grid">
@@ -151,6 +203,7 @@ export default function PracticeApp() {
                     <div className="pr-vocab-term">
                       {v.term}
                       <button className="pr-mini" title="Nghe" onClick={() => speak(v.term, 'en')}>🔊</button>
+                      <button className="pr-mini" title="Phát âm trong video thật (YouGlish)" onClick={() => openUrl(youglishUrl(v.term))}>🎬</button>
                     </div>
                     {v.ipa && <div className="pr-vocab-ipa">/{v.ipa.replace(/^\/|\/$/g, '')}/</div>}
                     <div className="pr-vocab-meaning">{v.meaning}</div>
@@ -166,7 +219,7 @@ export default function PracticeApp() {
             <section className="pr-section">
               <div className="pr-section-head"><h2>Mẫu câu — luyện nói &amp; nghe</h2></div>
               {pack.phrases.map((p, i) => (
-                <PracticeLine key={i} en={p.en} vi={p.vi} onSpeak={speak} />
+                <PracticeLine key={i} en={p.en} vi={p.vi} onSpeak={speak} onScore={recordScore} />
               ))}
             </section>
           )}
@@ -174,10 +227,19 @@ export default function PracticeApp() {
           {/* Dialogue */}
           {pack.dialogue.length > 0 && (
             <section className="pr-section">
-              <div className="pr-section-head"><h2>Hội thoại</h2></div>
-              {pack.dialogue.map((d: DialogueLine, i) => (
-                <PracticeLine key={i} en={d.en} vi={d.vi} speaker={d.speaker} onSpeak={speak} />
-              ))}
+              <div className="pr-section-head">
+                <h2>Hội thoại</h2>
+                {SR_SUPPORTED && !rolePlay && (
+                  <button className="pr-save" onClick={() => setRolePlay(true)}>🎭 Đóng vai</button>
+                )}
+              </div>
+              {rolePlay ? (
+                <RolePlay dialogue={pack.dialogue} speak={speak} onScore={recordScore} onExit={() => setRolePlay(false)} />
+              ) : (
+                pack.dialogue.map((d: DialogueLine, i) => (
+                  <PracticeLine key={i} en={d.en} vi={d.vi} speaker={d.speaker} onSpeak={speak} onScore={recordScore} />
+                ))
+              )}
             </section>
           )}
         </div>
@@ -200,11 +262,13 @@ function PracticeLine({
   vi,
   speaker,
   onSpeak,
+  onScore,
 }: {
   en: string;
   vi: string;
   speaker?: string;
   onSpeak: (text: string, lang?: Language) => void;
+  onScore: (score: number) => void;
 }) {
   const [recognizing, setRecognizing] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -226,7 +290,9 @@ function PracticeLine({
     stopRef.current = handle.stop;
     try {
       const said = await promise;
-      setScore(scoreSpeech(en, said));
+      const sc = scoreSpeech(en, said);
+      setScore(sc);
+      onScore(sc.score);
     } catch {
       setTranscript('(không nghe được — kiểm tra quyền micro)');
     }
@@ -234,7 +300,9 @@ function PracticeLine({
   }
 
   function checkDictation() {
-    setDictScore(scoreSpeech(en, dictInput));
+    const sc = scoreSpeech(en, dictInput);
+    setDictScore(sc);
+    onScore(sc.score);
   }
 
   const shown = score || dictScore;
@@ -282,6 +350,137 @@ function PracticeLine({
             {dictScore && <span className={`pr-score ${dictScore.score >= 70 ? 'good' : 'low'}`}>{dictScore.score}%</span>}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---- Role-play: the user speaks one side of the dialogue (VI cue → speak EN) ----
+
+function RolePlay({
+  dialogue,
+  speak,
+  onScore,
+  onExit,
+}: {
+  dialogue: DialogueLine[];
+  speak: (text: string, lang?: Language) => void;
+  onScore: (score: number) => void;
+  onExit: () => void;
+}) {
+  // The learner plays speaker "B"; the app voices speaker "A" (and any other).
+  const speakers = useMemo(() => Array.from(new Set(dialogue.map((d) => d.speaker))), [dialogue]);
+  const [role, setRole] = useState(speakers[1] || speakers[0] || 'B');
+  const [i, setI] = useState(0);
+  const [revealed, setRevealed] = useState(false);
+  const [recognizing, setRecognizing] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [score, setScore] = useState<SpeechScore | null>(null);
+  const [scores, setScores] = useState<number[]>([]);
+
+  const line = dialogue[i];
+  const done = i >= dialogue.length;
+  const isUser = line && line.speaker === role;
+
+  function next() {
+    setRevealed(false);
+    setTranscript('');
+    setScore(null);
+    setI((x) => x + 1);
+  }
+
+  async function userSpeak() {
+    if (recognizing || !line) return;
+    setRecognizing(true);
+    setTranscript('');
+    const { promise } = recognizeOnce('en-US', setTranscript);
+    try {
+      const said = await promise;
+      const sc = scoreSpeech(line.en, said);
+      setScore(sc);
+      setScores((s) => [...s, sc.score]);
+      onScore(sc.score);
+    } catch {
+      setTranscript('(không nghe được — kiểm tra quyền micro)');
+    }
+    setRevealed(true);
+    setRecognizing(false);
+  }
+
+  function restart() {
+    setI(0);
+    setRevealed(false);
+    setTranscript('');
+    setScore(null);
+    setScores([]);
+  }
+
+  if (done) {
+    const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    return (
+      <div className="pr-roleplay pr-roleplay-done">
+        <div className="pr-empty-emoji">🎉</div>
+        <p>Hoàn thành! Điểm nói trung bình: <b>{avg}%</b></p>
+        <div className="pr-line-actions" style={{ justifyContent: 'center' }}>
+          <button className="pr-act" onClick={restart}>Làm lại</button>
+          <button className="pr-act" onClick={onExit}>Thoát</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pr-roleplay">
+      <div className="pr-roleplay-bar">
+        <span>Đóng vai <b>{role}</b> · Lượt {i + 1}/{dialogue.length}</span>
+        <div className="pr-roleplay-controls">
+          <select className="pr-select" value={role} onChange={(e) => { setRole(e.target.value); restart(); }}>
+            {speakers.map((s) => <option key={s} value={s}>Vai {s}</option>)}
+          </select>
+          <button className="pr-act" onClick={onExit}>Thoát</button>
+        </div>
+      </div>
+
+      <div className="pr-turn">
+        <span className="pr-speaker">{line.speaker}</span>
+        <div className="pr-line-body">
+          {isUser ? (
+            <>
+              <div className="pr-turn-cue">🗣️ Lượt của bạn — nói câu này bằng tiếng Anh:</div>
+              <div className="pr-line-vi" style={{ fontSize: 15 }}>{line.vi}</div>
+              {revealed && (
+                <div className="pr-line-en" style={{ marginTop: 6 }}>
+                  {score
+                    ? score.tokens.map((t, k) => <span key={k} className={t.ok ? 'ok' : 'miss'}>{t.w} </span>)
+                    : line.en}
+                </div>
+              )}
+              {transcript && <div className="pr-transcript">Bạn nói: “{transcript}”</div>}
+              <div className="pr-line-actions">
+                {!revealed ? (
+                  <button className={`pr-act ${recognizing ? 'rec' : ''}`} onClick={userSpeak}>
+                    {recognizing ? '● Đang nghe…' : '🎤 Nói'}
+                  </button>
+                ) : (
+                  <>
+                    <button className="pr-act" onClick={() => speak(line.en, 'en')}>🔊 Nghe mẫu</button>
+                    {score && <span className={`pr-score ${score.score >= 70 ? 'good' : 'low'}`}>{score.score}%</span>}
+                    <button className="pr-act" onClick={next}>Tiếp →</button>
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="pr-line-en">{line.en}</div>
+              <div className="pr-line-vi">{line.vi}</div>
+              <div className="pr-line-actions">
+                <button className="pr-act" onClick={() => speak(line.en, 'en')}>🔊 Nghe</button>
+                <button className="pr-act" onClick={next}>Tiếp →</button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
