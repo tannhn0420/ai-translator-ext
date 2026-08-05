@@ -20,6 +20,8 @@ export function createCard(input: VocabCardInput, now: number): VocabCard {
     example: input.example,
     context: input.context,
     sourceUrl: input.sourceUrl,
+    topic: input.topic,
+    image: input.image,
     createdAt: now,
     due: now,
     interval: 0,

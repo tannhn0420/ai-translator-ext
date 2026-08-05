@@ -19,6 +19,9 @@ interface CachedSettings {
   autoTranslateOnHighlight: boolean;
   dictionaryModeEnabled: boolean;
   contextAwareEnabled: boolean;
+  ttsVoiceEn: string;
+  ttsVoiceVi: string;
+  ttsRate: number;
 }
 
 const CONTEXT_CHARS_AROUND = 250;
@@ -41,6 +44,9 @@ function initContentScript() {
     autoTranslateOnHighlight: true,
     dictionaryModeEnabled: true,
     contextAwareEnabled: true,
+    ttsVoiceEn: '',
+    ttsVoiceVi: '',
+    ttsRate: 0.95,
   };
 
   // Bubble drag-position memory (per-session, viewport coords)
@@ -178,6 +184,9 @@ function initContentScript() {
           autoTranslateOnHighlight: response.data.autoTranslateOnHighlight !== false,
           dictionaryModeEnabled: response.data.dictionaryModeEnabled !== false,
           contextAwareEnabled: response.data.contextAwareEnabled !== false,
+          ttsVoiceEn: response.data.ttsVoiceEn || '',
+          ttsVoiceVi: response.data.ttsVoiceVi || '',
+          ttsRate: response.data.ttsRate || 0.95,
         };
         applySidebarSettings();
       }
@@ -760,11 +769,13 @@ function initContentScript() {
   function speak(text: string, lang: string) {
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
-    const isVi = /[àáãạảăắằẳẵặâấầẩẫậèéẹẻẽêềếểễệđìíĩỉịòóõọỏôốồổỗộơớờởỡợùúũụủưứừửữựỳýỵỷỹ]/i.test(text);
-    const targetLang = lang === 'auto' ? (isVi ? 'vi-VN' : 'en-US') : lang;
+    const isVi = lang === 'auto' ? VI_RE.test(text) : lang.toLowerCase().startsWith('vi');
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = targetLang;
-    utter.rate = 0.95;
+    const uri = isVi ? cachedSettings.ttsVoiceVi : cachedSettings.ttsVoiceEn;
+    const voice = uri ? window.speechSynthesis.getVoices().find((v) => v.voiceURI === uri) : undefined;
+    if (voice) utter.voice = voice;
+    else utter.lang = isVi ? 'vi-VN' : 'en-US';
+    utter.rate = cachedSettings.ttsRate || 0.95;
     window.speechSynthesis.speak(utter);
   }
 

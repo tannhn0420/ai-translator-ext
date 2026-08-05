@@ -41,6 +41,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   pageTranslateMode: 'replace',
   pageTargetLang: 'vi',
   pageAutoDomains: [],
+  ttsVoiceEn: '',
+  ttsVoiceVi: '',
+  ttsRate: 0.95,
   sidebarToggleY: 0,    // 0 means use default (50%)
   sidebarWidth: 360,
   totalTranslations: 0,
@@ -258,4 +261,31 @@ export async function updateVocabCard(card: VocabCard): Promise<void> {
 export async function deleteVocabCard(id: string): Promise<void> {
   const deck = await getVocab();
   await chrome.storage.local.set({ [VOCAB_KEY]: deck.filter((c) => c.id !== id) });
+}
+
+/** Bulk-add cards, deduping against the existing deck (and within the import). Single read/write. */
+export async function importVocabCards(cards: VocabCard[]): Promise<{ added: number; skipped: number }> {
+  const deck = await getVocab();
+  const norm = (s: string) => s.trim().toLowerCase();
+  const seen = new Set(deck.map((c) => `${c.lang}|${norm(c.term)}`));
+  let added = 0;
+  let skipped = 0;
+  for (const c of cards) {
+    const term = (c.term || '').trim();
+    const meaning = (c.meaning || '').trim();
+    if (!term || !meaning) {
+      skipped++;
+      continue;
+    }
+    const key = `${c.lang}|${norm(term)}`;
+    if (seen.has(key)) {
+      skipped++;
+      continue;
+    }
+    seen.add(key);
+    deck.unshift(c);
+    added++;
+  }
+  await chrome.storage.local.set({ [VOCAB_KEY]: deck });
+  return { added, skipped };
 }

@@ -30,6 +30,7 @@ import {
   saveVocabCard,
   updateVocabCard,
   deleteVocabCard,
+  importVocabCards,
 } from '../services/storage';
 import { createCard } from '../utils/srs';
 import { callGeminiAPI, callGeminiAPIStream, validateApiKey } from '../services/gemini';
@@ -221,6 +222,20 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
     case 'DELETE_VOCAB':
       await deleteVocabCard((message.payload as { id: string }).id);
       return { success: true };
+
+    case 'IMPORT_VOCAB': {
+      const raw = (message.payload as { cards: unknown[] }).cards || [];
+      const now = Date.now();
+      const cards: VocabCard[] = raw.map((r) => {
+        const item = r as Partial<VocabCard>;
+        // A full backup card (has id + SRS) is kept as-is; otherwise create a fresh card.
+        return item && item.id && typeof item.due === 'number'
+          ? (item as VocabCard)
+          : createCard(item as VocabCardInput, now);
+      });
+      const result = await importVocabCards(cards);
+      return { success: true, data: result };
+    }
 
     default:
       return { success: false, error: 'Unknown message type' };

@@ -307,3 +307,181 @@ body {
   font-size: 13px;
   margin-top: 14px;
 }
+
+/* --- Settings bar (TTS) --- */
+.fc-settings-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+.fc-settings-label {
+  color: var(--muted);
+}
+.fc-select {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(15, 15, 35, 0.6);
+  color: var(--text);
+  font-size: 13px;
+  max-width: 200px;
+}
+.fc-rate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* --- Review controls --- */
+.fc-review-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.fc-modes {
+  display: flex;
+  gap: 6px;
+}
+.fc-modes button {
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.fc-modes button.active {
+  color: #fff;
+  border-color: var(--indigo);
+  background: rgba(99, 102, 241, 0.25);
+}
+
+.fc-play {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  margin-left: 8px;
+  opacity: 0.85;
+}
+.fc-play:hover {
+  opacity: 1;
+}
+.fc-card-image {
+  max-width: 200px;
+  max-height: 160px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* --- Manage extras --- */
+.fc-item-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex: 0 0 auto;
+}
+.fc-topic-select {
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(15, 15, 35, 0.6);
+  color: var(--muted);
+  font-size: 12px;
+}
+.fc-item-actions {
+  display: flex;
+  gap: 4px;
+}
+.fc-icon-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+}
+.fc-icon-btn:hover {
+  border-color: var(--indigo);
+}
+.fc-msg {
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* --- Add / edit form --- */
+.fc-form-title {
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+.fc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.fc-field-row {
+  display: flex;
+  gap: 12px;
+}
+.fc-field-row .fc-field {
+  flex: 1;
+}
+.fc-input,
+.fc-textarea {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(15, 15, 35, 0.6);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+.fc-textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+.fc-image-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.fc-img-preview {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.fc-form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}

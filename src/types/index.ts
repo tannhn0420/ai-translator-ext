@@ -47,7 +47,8 @@ export type MessageType =
   | 'SAVE_VOCAB'
   | 'GET_VOCAB'
   | 'UPDATE_VOCAB'
-  | 'DELETE_VOCAB';
+  | 'DELETE_VOCAB'
+  | 'IMPORT_VOCAB';
 
 export interface ChromeMessage {
   type: MessageType;
@@ -150,6 +151,11 @@ export interface AppSettings {
   pageTargetLang: Language;
   pageAutoDomains: string[]; // hostnames (without leading www.) to auto-translate on load
 
+  // Text-to-speech
+  ttsVoiceEn: string; // preferred voiceURI for English
+  ttsVoiceVi: string; // preferred voiceURI for Vietnamese
+  ttsRate: number; // speech rate
+
   // UI state
   sidebarToggleY: number; // px from top, persisted icon position
   sidebarWidth: number;   // px
@@ -179,6 +185,8 @@ export interface VocabCard {
   example?: string;
   context?: string; // sentence the term was saved from
   sourceUrl?: string;
+  topic?: string; // category / topic
+  image?: string; // small downscaled illustration (data URL)
   createdAt: number;
   // SRS (SM-2 lite)
   due: number; // next review timestamp (ms)
@@ -190,7 +198,7 @@ export interface VocabCard {
 
 /** Input for creating a new card (SRS fields filled in by the SRS util). */
 export type VocabCardInput = Pick<VocabCard, 'term' | 'lang' | 'meaning'> &
-  Partial<Pick<VocabCard, 'ipa' | 'example' | 'context' | 'sourceUrl'>>;
+  Partial<Pick<VocabCard, 'ipa' | 'example' | 'context' | 'sourceUrl' | 'topic' | 'image'>>;
 
 // Gemini API types
 export interface GeminiRequest {
