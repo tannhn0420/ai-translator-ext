@@ -907,16 +907,29 @@ function initContentScript() {
     const toggleBtn = document.createElement('div');
     toggleBtn.id = 'ai-translator-sidebar-toggle';
     toggleBtn.innerHTML = '📝';
-    toggleBtn.title = 'AI Translator History (kéo để di chuyển, click để mở)';
+    toggleBtn.title = 'AI Translator — lịch sử dịch (kéo để di chuyển, click để mở)';
     toggleBtn.style.cssText = `
       position: fixed; top: 50%; right: 0; transform: translateY(-50%);
-      background: rgba(99, 102, 241, 0.9); color: white; width: 36px; height: ${TOGGLE_HEIGHT}px;
+      background: rgba(99, 102, 241, 0.85); color: white; width: 30px; height: ${TOGGLE_HEIGHT}px;
       display: flex; align-items: center; justify-content: center;
       border-radius: 8px 0 0 8px; cursor: grab; z-index: 2147483647;
-      box-shadow: -2px 0 10px rgba(0,0,0,0.3); font-size: 18px;
-      transition: background 0.2s, right 0.3s ease;
+      box-shadow: -2px 0 10px rgba(0,0,0,0.25); font-size: 15px;
+      opacity: 0.35; transition: opacity 0.2s ease, background 0.2s, right 0.3s ease;
       user-select: none; touch-action: none;
     `;
+
+    // Small dismiss button (hides the toggle for this page load; returns on refresh).
+    const toggleClose = document.createElement('div');
+    toggleClose.className = 'ai-toggle-close';
+    toggleClose.textContent = '×';
+    toggleClose.title = 'Ẩn nút (hiện lại khi tải lại trang)';
+    toggleClose.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); });
+    toggleClose.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleBtn.style.display = 'none';
+      closeSidebar();
+    });
+    toggleBtn.appendChild(toggleClose);
 
     enableToggleDrag(toggleBtn, sidebar);
 

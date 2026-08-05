@@ -37,11 +37,12 @@ function App() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       let host = '';
-      if (tab?.url) {
+      // Only real web pages have a translatable host — skip chrome://, extension pages, file://…
+      if (tab?.url && /^https?:/i.test(tab.url)) {
         try {
           host = new URL(tab.url).hostname.replace(/^www\./, '');
         } catch {
-          // non-http URL (chrome://, file://…) — no host
+          // ignore
         }
       }
       setCurrentHost(host);
@@ -311,213 +312,161 @@ function App() {
   const charCount = inputText.length;
   const charClass = charCount > MAX_TEXT_LENGTH ? 'error' : charCount > MAX_TEXT_LENGTH * 0.8 ? 'warning' : '';
 
+  const targetName = targetLang === 'vi' ? 'Tiếng Việt' : 'English';
+
   return (
     <div className="popup-app">
       {/* Header */}
       <header className="popup-header">
         <div className="popup-header-left">
           <div className="popup-logo">🌐</div>
-          <h1 className="popup-title">
-            <span className="text-gradient">AI Translator</span>
-          </h1>
+          <h1 className="popup-title">AI Translator</h1>
         </div>
         <div className="popup-header-actions">
-          <button className="header-btn" onClick={openFlashcards} title="Sổ từ vựng (Flashcards)">
-            📇
-          </button>
-          <button className="header-btn" onClick={openZenMode} title="Zen Reading Mode">
-            📖
-          </button>
-          <button className="header-btn" onClick={openOptions} title="Settings">
-            ⚙️
-          </button>
+          <button className="header-btn" onClick={openFlashcards} title="Sổ từ vựng">📇</button>
+          <button className="header-btn" onClick={openZenMode} title="Đọc tập trung (Zen)">📖</button>
+          <button className="header-btn" onClick={openOptions} title="Cài đặt">⚙️</button>
         </div>
       </header>
 
-      {/* API Key Warning */}
-      {!hasApiKey && (
-        <div className="api-key-banner">
-          ⚠️ Chưa có API key.{' '}
-          <a onClick={openOptions}>Cấu hình ngay</a>
+      <div className="popup-body">
+        {!hasApiKey && (
+          <div className="api-key-banner">
+            <span>Chưa có API key.</span>
+            <a onClick={openOptions}>Cấu hình ngay</a>
+          </div>
+        )}
+
+        {/* Language bar */}
+        <div className="language-bar">
+          <select
+            className="lang-select"
+            value={sourceLang}
+            onChange={(e) => setSourceLang(e.target.value as SourceLanguage)}
+          >
+            <option value="auto">{LANGUAGE_LABELS.auto}</option>
+            <option value="en">{LANGUAGE_LABELS.en}</option>
+            <option value="vi">{LANGUAGE_LABELS.vi}</option>
+          </select>
+          <button className="swap-btn" onClick={handleSwap} title="Đổi chiều dịch">⇄</button>
+          <select
+            className="lang-select"
+            value={targetLang}
+            onChange={(e) => setTargetLang(e.target.value as Language)}
+          >
+            <option value="en">{LANGUAGE_LABELS.en}</option>
+            <option value="vi">{LANGUAGE_LABELS.vi}</option>
+          </select>
         </div>
-      )}
 
-      {/* Language Bar */}
-      <div className="language-bar">
-        <select
-          className="lang-select"
-          value={sourceLang}
-          onChange={(e) => setSourceLang(e.target.value as SourceLanguage)}
-          id="source-lang-select"
-        >
-          <option value="auto">{LANGUAGE_LABELS.auto}</option>
-          <option value="en">{LANGUAGE_LABELS.en}</option>
-          <option value="vi">{LANGUAGE_LABELS.vi}</option>
-        </select>
-
-        <button className="swap-btn" onClick={handleSwap} title="Đổi ngôn ngữ">
-          ⇄
-        </button>
-
-        <select
-          className="lang-select"
-          value={targetLang}
-          onChange={(e) => setTargetLang(e.target.value as Language)}
-          id="target-lang-select"
-        >
-          <option value="en">{LANGUAGE_LABELS.en}</option>
-          <option value="vi">{LANGUAGE_LABELS.vi}</option>
-        </select>
-      </div>
-
-      {/* Translation Section */}
-      <div className="translation-section">
-        {/* Input */}
-        <div className="input-wrapper">
-          <div className="textarea-container">
+        {/* Quick translate */}
+        <div className="translate-panel">
+          <div className="field">
             <textarea
-              id="translation-input"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Nhập hoặc paste text cần dịch... (Ctrl+Enter để dịch)"
+              placeholder="Nhập hoặc dán văn bản… (Ctrl+Enter để dịch)"
               maxLength={MAX_TEXT_LENGTH + 100}
             />
-          </div>
-          <div className="textarea-footer">
-            <span className={`char-count ${charClass}`}>
-              {charCount}/{MAX_TEXT_LENGTH}
-            </span>
-            <div className="textarea-actions">
+            <div className="field-footer">
+              <span className={`char-count ${charClass}`}>{charCount}/{MAX_TEXT_LENGTH}</span>
               {inputText && (
-                <button className="icon-btn" onClick={handleClear} title="Xóa">
-                  🗑️
-                </button>
+                <button className="link-btn" onClick={handleClear}>Xoá</button>
               )}
             </div>
           </div>
-        </div>
 
-        {/* Translate Button */}
-        <div className="translate-btn-wrapper">
           <button
             className={`translate-btn ${isLoading ? 'loading' : ''}`}
             onClick={handleTranslate}
             disabled={!inputText.trim() || isLoading || !hasApiKey}
-            id="translate-btn"
           >
-            {isLoading ? (
-              <>
-                <div className="spinner" />
-                Đang dịch...
-              </>
-            ) : (
-              <>✨ Dịch</>
-            )}
+            {isLoading ? (<><span className="spinner" /> Đang dịch…</>) : (<>✨ Dịch</>)}
           </button>
-        </div>
 
-        {/* Output */}
-        <div className="output-wrapper">
-          {outputText ? (
-            <div className="textarea-container">
-              <textarea
-                id="translation-output"
-                value={outputText}
-                readOnly
-                placeholder="Kết quả dịch sẽ hiển thị ở đây..."
-              />
-              <div className="textarea-footer">
-                <span className="char-count">{outputText.length} ký tự</span>
-                <div className="textarea-actions">
-                  <button
-                    className={`icon-btn ${copied ? 'copied' : ''}`}
-                    onClick={handleCopy}
-                    title="Copy"
-                  >
-                    {copied ? '✅' : '📋'}
+          {(isLoading || outputText) && (
+            <div className="output-card">
+              <div className="output-head">
+                <span className="output-label">Kết quả</span>
+                {outputText && (
+                  <button className={`link-btn ${copied ? 'copied' : ''}`} onClick={handleCopy}>
+                    {copied ? '✓ Đã copy' : 'Copy'}
                   </button>
-                </div>
+                )}
               </div>
-            </div>
-          ) : (
-            <div className="output-placeholder">
-              {isLoading ? '🔄 Đang xử lý...' : '✨ Kết quả dịch sẽ hiển thị ở đây'}
+              <div className="output-text">{outputText || 'Đang dịch…'}</div>
             </div>
           )}
         </div>
+
+        {/* Section: whole page */}
+        <section className="popup-section">
+          <div className="popup-section-label">Dịch cả trang</div>
+          <button
+            className="page-btn"
+            onClick={translateFullPage}
+            disabled={!hasApiKey}
+            title="Dịch & thay thế toàn trang, giữ format. Bấm lại để khôi phục bản gốc."
+          >
+            🌐 Dịch cả trang → {targetName}
+          </button>
+          <div className="segmented" role="group" aria-label="Chế độ hiển thị">
+            <button
+              className={`segment ${pageMode === 'replace' ? 'active' : ''}`}
+              onClick={() => pageMode !== 'replace' && togglePageMode()}
+            >
+              🔁 Thay thế
+            </button>
+            <button
+              className={`segment ${pageMode === 'bilingual' ? 'active' : ''}`}
+              onClick={() => pageMode !== 'bilingual' && togglePageMode()}
+            >
+              📑 Song ngữ
+            </button>
+          </div>
+        </section>
+
+        {/* Section: options */}
+        <section className="popup-section">
+          <div className="popup-section-label">Tuỳ chọn</div>
+          <div className="pill-row">
+            <button
+              className={`toggle-pill ${autoTranslate ? 'on' : ''}`}
+              onClick={toggleAutoTranslate}
+              title="Tự dịch ngay khi bôi đen văn bản"
+            >
+              <span className="dot" /> Auto dịch chọn
+            </button>
+            <button
+              className={`toggle-pill ${reminderEnabled ? 'on' : ''}`}
+              onClick={toggleReminder}
+              title="Nhắc ôn từ vựng ~10 phút/lần trên tab đang dùng"
+            >
+              <span className="dot" /> Nhắc học
+            </button>
+            <button
+              className={`toggle-pill ${autoSite ? 'on' : ''}`}
+              onClick={toggleAutoSite}
+              disabled={!currentHost}
+              title={currentHost ? `Tự dịch mỗi khi mở ${currentHost}` : 'Chỉ dùng được trên trang web'}
+            >
+              <span className="dot" /> {currentHost ? `Tự dịch ${currentHost}` : 'Tự dịch site'}
+            </button>
+          </div>
+          <select
+            className="prompt-select"
+            value={selectedPrompt}
+            onChange={(e) => handlePromptChange(e.target.value)}
+          >
+            <option value="">🤖 Phong cách dịch: Mặc định</option>
+            {PRESET_PROMPTS.map((prompt) => (
+              <option key={prompt.id} value={prompt.id}>{prompt.name}</option>
+            ))}
+          </select>
+        </section>
       </div>
 
-      {/* Full-page translation */}
-      <div className="quick-actions">
-        <button
-          className="quick-action-btn active"
-          onClick={translateFullPage}
-          disabled={!hasApiKey}
-          title="Dịch & thay thế toàn bộ text trên trang (giữ format). Bấm lại để khôi phục bản gốc."
-        >
-          🌐 Dịch cả trang → {targetLang === 'vi' ? 'VI' : 'EN'}
-        </button>
-        <button
-          className="quick-action-btn"
-          onClick={togglePageMode}
-          title="Chế độ hiển thị bản dịch trang"
-        >
-          {pageMode === 'replace' ? '🔁 Thay thế' : '📑 Song ngữ'}
-        </button>
-      </div>
-
-      {/* Auto-translate this site */}
-      <div className="quick-actions">
-        <button
-          className={`quick-action-btn ${autoSite ? 'active' : ''}`}
-          onClick={toggleAutoSite}
-          disabled={!currentHost}
-          title="Tự động dịch cả trang mỗi khi bạn mở site này (nhớ theo tên miền)"
-        >
-          {autoSite ? '🟢' : '⚪'} Tự dịch {currentHost ? currentHost : 'site này'}
-        </button>
-        <button
-          className={`quick-action-btn ${reminderEnabled ? 'active' : ''}`}
-          onClick={toggleReminder}
-          title="Nhắc ôn từ vựng: hiện toast từ đang học ~10 phút/lần trên tab đang dùng"
-        >
-          {reminderEnabled ? '🔔' : '🔕'} Nhắc học
-        </button>
-      </div>
-
-      {/* Prompt Select */}
-      <div className="prompt-select-wrapper">
-        <select
-          className="prompt-select"
-          value={selectedPrompt}
-          onChange={(e) => handlePromptChange(e.target.value)}
-          id="prompt-select"
-        >
-          <option value="">🤖 Prompt mặc định</option>
-          {PRESET_PROMPTS.map((prompt) => (
-            <option key={prompt.id} value={prompt.id}>
-              {prompt.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="quick-actions">
-        <button
-          className={`quick-action-btn ${autoTranslate ? 'active' : ''}`}
-          onClick={toggleAutoTranslate}
-          title="Auto dịch khi highlight text"
-        >
-          {autoTranslate ? '🟢' : '⚪'} Auto Highlight
-        </button>
-        <button className="quick-action-btn" onClick={openOptions}>
-          🎨 Custom Prompt
-        </button>
-      </div>
-
-      {/* Error Toast */}
       {error && (
         <div className="error-toast">
           <span>⚠️ {error}</span>

@@ -178,15 +178,22 @@ body {
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   width: 100%;
+  align-self: stretch;
 }
 .fc-rate {
+  width: 100%;
+  box-sizing: border-box;
   padding: 12px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: 12px;
   color: #fff;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  transition: filter 0.15s ease, transform 0.1s ease;
+}
+.fc-rate:active {
+  transform: translateY(1px);
 }
 .fc-rate.again {
   background: rgba(239, 68, 68, 0.85);
