@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PracticePack, DialogueLine, Language, SpeakingAssessment, VocabCard, DrillPack, PracticeVocab } from '../types';
 import { isSpeechRecognitionSupported, recognizeOnce, scoreSpeech, type SpeechScore, type RecognitionHandle } from './speech';
+import { cachedImage, loadImage } from './images';
 
 const TOPIC_SUGGESTIONS = ['Nhà hàng', 'Sân bay', 'Phỏng vấn xin việc', 'Khách sạn', 'Mua sắm', 'Cuộc họp', 'Du lịch', 'Đi khám bệnh'];
 const LEVELS: { key: string; label: string }[] = [
@@ -114,6 +115,7 @@ export default function PracticeApp() {
   const [chatOpen, setChatOpen] = useState(false);
   const [ieltsOpen, setIeltsOpen] = useState(false);
   const [drillOpen, setDrillOpen] = useState(false);
+  const [autoImg, setAutoImg] = useState(true); // auto-load illustrations for vocab
 
   // Cache of generated packs (instant, token-free topic switching)
   const packCacheRef = useRef<Map<string, PracticePack>>(new Map());
@@ -140,6 +142,7 @@ export default function PracticeApp() {
           const th = s.data.theme === 'light' ? 'light' : 'dark';
           setTheme(th);
           document.documentElement.dataset.theme = th;
+          setAutoImg(s.data.vocabAutoImage !== false);
         }
       } catch { /* ignore */ }
       setTodayTopic(dailyTopic());
@@ -213,7 +216,9 @@ export default function PracticeApp() {
     });
 
     // Complete today's daily challenge when practicing today's topic.
-    if (todayTopic && topic.trim().toLowerCase() === todayTopic.toLowerCase()) {
+    // Compare against the generated pack's topic (stable), not the live input box.
+    const activeTopic = (pack?.topic || topic).trim().toLowerCase();
+    if (todayTopic && activeTopic === todayTopic.toLowerCase()) {
       setDailyStats((prev) => {
         if (isToday(prev.lastDone)) return prev;
         const next = bumpDaily(prev);
@@ -251,6 +256,12 @@ export default function PracticeApp() {
     setTheme(next);
     document.documentElement.dataset.theme = next;
     chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { theme: next } }).catch(() => {});
+  }
+
+  function toggleAutoImg() {
+    const next = !autoImg;
+    setAutoImg(next);
+    chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { vocabAutoImage: next } }).catch(() => {});
   }
 
   async function generate(t?: string, words?: string[]) {
@@ -328,6 +339,7 @@ export default function PracticeApp() {
       example: v.example,
       topic: pack.topic,
       lang: 'en' as Language,
+      image: cachedImage(v.term) || undefined, // carry the already-loaded illustration into the deck
     }));
     try {
       const res = await chrome.runtime.sendMessage({ type: 'IMPORT_VOCAB', payload: { cards } });
@@ -511,6 +523,13 @@ export default function PracticeApp() {
               <div className="pr-section-head">
                 <h2>Từ vựng</h2>
                 <div className="pr-head-actions">
+                  <button
+                    className={`pr-act ${autoImg ? 'on' : ''}`}
+                    onClick={toggleAutoImg}
+                    title="Tự động tải ảnh minh hoạ cho từ (tải từ từ, có cache)"
+                  >
+                    {autoImg ? '🖼️ Ảnh tự động: Bật' : '🖼️ Ảnh tự động: Tắt'}
+                  </button>
                   <button className="pr-act" onClick={() => openUrl(youtubeSearchUrl(pack.topic))} title="Xem video hội thoại chủ đề này trên YouTube">📺 Video chủ đề</button>
                   <button className="pr-save" onClick={saveVocab}>📇 Lưu tất cả vào sổ</button>
                 </div>
@@ -518,7 +537,7 @@ export default function PracticeApp() {
               {saveMsg && <div className="pr-savemsg">{saveMsg}</div>}
               <div className="pr-vocab-grid">
                 {pack.vocab.map((v, i) => (
-                  <VocabItem key={i} v={v} speak={speak} />
+                  <VocabItem key={i} v={v} speak={speak} autoImg={autoImg} />
                 ))}
               </div>
             </section>
@@ -623,6 +642,7 @@ function ChatMode({
   const [interim, setInterim] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
+  const recRef = useRef<RecognitionHandle | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -630,6 +650,7 @@ function ChatMode({
     return () => {
       mounted.current = false;
       window.speechSynthesis?.cancel();
+      recRef.current?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -662,7 +683,8 @@ function ChatMode({
     if (recognizing || thinking) return;
     setRecognizing(true);
     setInterim('');
-    const { promise } = recognizeOnce('en-US', setInterim);
+    const { promise, handle } = recognizeOnce('en-US', setInterim);
+    recRef.current = handle;
     let said = '';
     try {
       said = await promise;
@@ -704,8 +726,8 @@ function ChatMode({
       <div className="pr-chat-actions">
         <button
           className={`pr-generate ${recognizing ? 'rec' : ''}`}
-          onClick={speakTurn}
-          disabled={thinking || recognizing}
+          onClick={recognizing ? () => recRef.current?.stop() : speakTurn}
+          disabled={thinking}
         >
           {recognizing ? '● Đang nghe… (bấm để dừng)' : '🎤 Nói'}
         </button>
@@ -742,6 +764,9 @@ function IeltsMode({
   const [assessment, setAssessment] = useState<SpeakingAssessment | null>(null);
   const [error, setError] = useState('');
   const recRef = useRef<RecognitionHandle | null>(null);
+
+  // Stop a still-running (continuous) recognition if the user exits mid-recording.
+  useEffect(() => () => recRef.current?.stop(), []);
 
   const cueQuestion = `Talk about ${topic}`;
   const cueBullets = ['what it is / what happens', 'when or where it happens', 'why it matters to you', 'how you feel about it'];
@@ -1387,33 +1412,48 @@ function DrillMode({
 
 // ---- Vocab card with on-demand illustration ----
 
-function VocabItem({ v, speak }: { v: PracticeVocab; speak: (text: string, lang?: Language) => void }) {
-  const [img, setImg] = useState('');
+function VocabItem({ v, speak, autoImg }: { v: PracticeVocab; speak: (text: string, lang?: Language) => void; autoImg: boolean }) {
+  const [img, setImg] = useState(() => cachedImage(v.term) || '');
+  const [show, setShow] = useState(true);
   const [loadingImg, setLoadingImg] = useState(false);
 
-  async function fetchImg() {
+  // Auto-load the illustration (throttled + cached in ./images) when enabled.
+  // setState happens only in the async resolution, never synchronously in the effect body.
+  useEffect(() => {
+    if (!autoImg) return;
+    let cancelled = false;
+    loadImage(v.term).then((u) => {
+      if (!cancelled) setImg(u);
+    });
+    return () => { cancelled = true; };
+  }, [v.term, autoImg]);
+
+  async function onImgBtn() {
     if (loadingImg) return;
-    if (img) { setImg(''); return; } // toggle off
+    if (img) { setShow((s) => !s); return; } // toggle visibility of an already-loaded image
     setLoadingImg(true);
-    try {
-      const r = await chrome.runtime.sendMessage({ type: 'FETCH_IMAGE', payload: { query: v.term } });
-      const u = r?.data?.urls?.[0];
-      if (u) setImg(u);
-    } catch {
-      /* ignore */
-    }
+    const u = await loadImage(v.term); // manual fetch when auto is off / none yet
+    setImg(u);
+    setShow(true);
     setLoadingImg(false);
   }
 
+  const hasImg = !!img;
   return (
     <div className="pr-vocab">
       <div className="pr-vocab-term">
         {v.term}
         <button className="pr-mini" title="Nghe" onClick={() => speak(v.term, 'en')}>🔊</button>
         <button className="pr-mini" title="Phát âm trong video thật (YouGlish)" onClick={() => openUrl(youglishUrl(v.term))}>🎬</button>
-        <button className="pr-mini" title="Ảnh minh hoạ" onClick={fetchImg}>{loadingImg ? '…' : '🖼️'}</button>
+        <button
+          className="pr-mini"
+          title={hasImg ? (show ? 'Ẩn ảnh' : 'Hiện ảnh') : 'Tìm ảnh minh hoạ'}
+          onClick={onImgBtn}
+        >
+          {loadingImg ? '…' : '🖼️'}
+        </button>
       </div>
-      {img && <img className="pr-vocab-img" src={img} alt="" />}
+      {img && show && <img className="pr-vocab-img" src={img} alt="" loading="lazy" />}
       {v.ipa && <div className="pr-vocab-ipa">/{v.ipa.replace(/^\/|\/$/g, '')}/</div>}
       <div className="pr-vocab-meaning">{v.meaning}</div>
       {v.example && <div className="pr-vocab-ex">“{v.example}”</div>}

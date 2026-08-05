@@ -776,7 +776,10 @@ function initContentScript() {
     ieltsBtn.addEventListener('click', async (e) => {
       const b = e.currentTarget as HTMLButtonElement;
       const textToAnalyze = b.getAttribute('data-text') || '';
-      const resultDiv = b.nextElementSibling as HTMLElement;
+      const resultDiv = b
+        .closest('.ai-translator-bubble-result-container')
+        ?.querySelector('.ai-ielts-result') as HTMLElement | null;
+      if (!resultDiv) return;
 
       if (resultDiv.style.display === 'block') {
         resultDiv.style.display = 'none';
@@ -1357,7 +1360,9 @@ function initContentScript() {
   function escapeHtml(text: string): string {
     const div = document.createElement('div');
     div.textContent = text;
-    return div.innerHTML;
+    // textContent escapes & < >, but NOT quotes — escape them too so the result
+    // is safe inside double/single-quoted attributes (e.g. data-text="…").
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   async function activateZenMode() {

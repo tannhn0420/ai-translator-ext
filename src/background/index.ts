@@ -1004,9 +1004,28 @@ async function handleAssessSpeaking(request: { payload: { transcript: string; qu
  * Fetch a relevant illustration for a term from Openverse (CC-licensed, no API key).
  * Returns a thumbnail URL served from api.openverse.org.
  */
+const IMAGE_CACHE_KEY = 'imageCache';
+const IMAGE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const IMAGE_CACHE_MAX = 600;
+
 async function handleFetchImage(query: string): Promise<{ success: boolean; data?: { urls: string[] }; error?: string }> {
   const q = (query || '').trim();
   if (!q) return { success: false, error: 'Thiếu từ khoá.' };
+  const cacheKey = q.toLowerCase();
+
+  // 1) Serve from cache (persists across sessions; avoids re-hitting the rate-limited API).
+  try {
+    const r = await chrome.storage.local.get({ [IMAGE_CACHE_KEY]: {} });
+    const cache = (r[IMAGE_CACHE_KEY] || {}) as Record<string, { urls: string[]; ts: number }>;
+    const hit = cache[cacheKey];
+    if (hit && Date.now() - hit.ts < IMAGE_CACHE_TTL_MS) {
+      return hit.urls.length
+        ? { success: true, data: { urls: hit.urls } }
+        : { success: false, error: 'Không tìm thấy ảnh phù hợp.' };
+    }
+  } catch { /* fall through to network */ }
+
+  // 2) Fetch from Openverse.
   try {
     const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=8&mature=false`;
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -1014,10 +1033,26 @@ async function handleFetchImage(query: string): Promise<{ success: boolean; data
     const data = await res.json();
     const results = (data.results || []) as { thumbnail?: string; url?: string }[];
     const urls = results.map((r) => r.thumbnail || r.url || '').filter(Boolean).slice(0, 6);
+    void cacheImageResult(cacheKey, urls); // cache even empty results to skip repeat lookups
     return urls.length ? { success: true, data: { urls } } : { success: false, error: 'Không tìm thấy ảnh phù hợp.' };
   } catch {
     return { success: false, error: 'Không tải được ảnh.' };
   }
+}
+
+/** Store an image-search result, evicting oldest entries when over capacity. */
+async function cacheImageResult(key: string, urls: string[]): Promise<void> {
+  try {
+    const r = await chrome.storage.local.get({ [IMAGE_CACHE_KEY]: {} });
+    const cache = (r[IMAGE_CACHE_KEY] || {}) as Record<string, { urls: string[]; ts: number }>;
+    cache[key] = { urls, ts: Date.now() };
+    const entries = Object.entries(cache);
+    const next =
+      entries.length > IMAGE_CACHE_MAX
+        ? Object.fromEntries(entries.sort((a, b) => b[1].ts - a[1].ts).slice(0, IMAGE_CACHE_MAX))
+        : cache;
+    await chrome.storage.local.set({ [IMAGE_CACHE_KEY]: next });
+  } catch { /* ignore */ }
 }
 
 // ============================================
