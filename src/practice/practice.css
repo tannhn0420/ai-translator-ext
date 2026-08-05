@@ -57,6 +57,23 @@
 }
 .pr-theme:hover { border-color: var(--indigo); }
 
+/* Light-mode contrast: darken pastel accents that would blend on a light background */
+[data-theme="light"] .pr-act { background: rgba(99, 102, 241, 0.12); color: #4338ca; border-color: rgba(99, 102, 241, 0.3); }
+[data-theme="light"] .pr-act:hover:not(:disabled) { background: rgba(99, 102, 241, 0.2); }
+[data-theme="light"] .pr-save,
+[data-theme="light"] .pr-savemsg { color: #047857; }
+[data-theme="light"] .pr-note { color: #92400e; }
+[data-theme="light"] .pr-error { color: #b91c1c; }
+[data-theme="light"] .pr-correction { color: #b45309; }
+[data-theme="light"] .pr-score.good,
+[data-theme="light"] .pr-band.good { color: #047857; }
+[data-theme="light"] .pr-score.low,
+[data-theme="light"] .pr-band.low { color: #b45309; }
+[data-theme="light"] .pr-band.mid { color: #1d4ed8; }
+[data-theme="light"] .pr-passage-sent:hover { color: #4f46e5; }
+[data-theme="light"] .pr-chip { color: #475569; }
+[data-theme="light"] .pr-line-en .miss { color: #dc2626; }
+
 * { box-sizing: border-box; }
 
 body {
@@ -217,6 +234,30 @@ body {
 .pr-empty { text-align: center; color: var(--muted); padding: 70px 20px; }
 .pr-empty-emoji { font-size: 44px; margin-bottom: 12px; }
 
+/* Pack tabs (reduce scrolling) */
+.pr-packtabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.pr-packtabs button {
+  padding: 9px 16px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.pr-packtabs button:hover { color: var(--text); }
+.pr-packtabs button.active { color: var(--indigo); border-bottom-color: var(--indigo); }
+
+.pr-masked { color: var(--muted); font-style: italic; }
+
 /* Sections */
 .pr-section { margin-bottom: 26px; }
 .pr-section-head {
@@ -293,15 +334,15 @@ body {
 }
 .pr-act {
   padding: 6px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(99, 102, 241, 0.35);
   border-radius: 999px;
-  background: rgba(99, 102, 241, 0.1);
+  background: rgba(99, 102, 241, 0.18);
   color: #c7d2fe;
   font-size: 12.5px;
   cursor: pointer;
   transition: background 0.15s ease;
 }
-.pr-act:hover:not(:disabled) { background: rgba(99, 102, 241, 0.2); }
+.pr-act:hover:not(:disabled) { background: rgba(99, 102, 241, 0.28); }
 .pr-act:disabled { opacity: 0.45; cursor: not-allowed; }
 .pr-act.rec {
   background: rgba(239, 68, 68, 0.85);

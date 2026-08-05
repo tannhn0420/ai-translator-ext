@@ -66,6 +66,7 @@ export default function PracticeApp() {
   const [saveMsg, setSaveMsg] = useState('');
   const [stats, setStats] = useState<PracticeStats>(EMPTY_STATS);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [packTab, setPackTab] = useState<'vocab' | 'phrases' | 'dialogue' | 'passage'>('vocab');
   const [rolePlay, setRolePlay] = useState(false);
   const [dictOpen, setDictOpen] = useState(false);
   const [passageDict, setPassageDict] = useState(false);
@@ -120,6 +121,11 @@ export default function PracticeApp() {
       if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = null;
     };
   }, []);
+
+  function applyPack(p: PracticePack) {
+    setPack(p);
+    setPackTab(p.vocab.length ? 'vocab' : p.phrases.length ? 'phrases' : p.dialogue.length ? 'dialogue' : 'passage');
+  }
 
   function speak(text: string, lang: Language = 'en', onEnd?: () => void, rate?: number) {
     if (!('speechSynthesis' in window) || !text) return;
@@ -187,7 +193,7 @@ export default function PracticeApp() {
     const key = packKey(q, level) + (words?.length ? `|w:${words.slice(0, 12).join(',')}` : '');
     const cached = packCacheRef.current.get(key);
     if (cached) {
-      setPack(cached);
+      applyPack(cached);
       return;
     }
 
@@ -197,7 +203,7 @@ export default function PracticeApp() {
       const res = await chrome.runtime.sendMessage({ type: 'GENERATE_PRACTICE', payload: { topic: q, level, words } });
       if (res?.success && res.data) {
         const pack = res.data as PracticePack;
-        setPack(pack);
+        applyPack(pack);
         packCacheRef.current.set(key, pack);
         void persistPack(key, pack, level);
         if (!words?.length) {
@@ -239,7 +245,7 @@ export default function PracticeApp() {
     setLevel(r.level);
     setTopic(r.topic);
     resetModes();
-    if (cached) setPack(cached);
+    if (cached) applyPack(cached);
     else void generate(r.topic);
   }
 
@@ -380,8 +386,23 @@ export default function PracticeApp() {
 
       {!chatOpen && !ieltsOpen && pack && (
         <div className="pr-content">
+          <div className="pr-packtabs">
+            {([
+              { k: 'vocab', label: `Từ vựng (${pack.vocab.length})`, n: pack.vocab.length },
+              { k: 'phrases', label: `Mẫu câu (${pack.phrases.length})`, n: pack.phrases.length },
+              { k: 'dialogue', label: `Hội thoại (${pack.dialogue.length})`, n: pack.dialogue.length },
+              { k: 'passage', label: 'Bài nghe', n: pack.passage?.length || 0 },
+            ] as const)
+              .filter((t) => t.n > 0)
+              .map((t) => (
+                <button key={t.k} className={packTab === t.k ? 'active' : ''} onClick={() => setPackTab(t.k)}>
+                  {t.label}
+                </button>
+              ))}
+          </div>
+
           {/* Vocab */}
-          {pack.vocab.length > 0 && (
+          {packTab === 'vocab' && pack.vocab.length > 0 && (
             <section className="pr-section">
               <div className="pr-section-head">
                 <h2>Từ vựng</h2>
@@ -409,7 +430,7 @@ export default function PracticeApp() {
           )}
 
           {/* Phrases */}
-          {pack.phrases.length > 0 && (
+          {packTab === 'phrases' && pack.phrases.length > 0 && (
             <section className="pr-section">
               <div className="pr-section-head"><h2>Mẫu câu — luyện nói &amp; nghe</h2></div>
               {pack.phrases.map((p, i) => (
@@ -419,7 +440,7 @@ export default function PracticeApp() {
           )}
 
           {/* Dialogue */}
-          {pack.dialogue.length > 0 && (
+          {packTab === 'dialogue' && pack.dialogue.length > 0 && (
             <section className="pr-section">
               <div className="pr-section-head">
                 <h2>Hội thoại</h2>
@@ -443,7 +464,7 @@ export default function PracticeApp() {
           )}
 
           {/* Listening passage (monologue) */}
-          {pack.passage && pack.passage.length > 0 && (
+          {packTab === 'passage' && pack.passage && pack.passage.length > 0 && (
             <section className="pr-section">
               <div className="pr-section-head">
                 <h2>Bài nghe (đoạn văn)</h2>
@@ -905,6 +926,8 @@ function PracticeLine({
             ? shown.tokens.map((t, i) => (
                 <span key={i} className={t.ok ? 'ok' : 'miss'}>{t.w} </span>
               ))
+            : dictOpen && !dictScore
+            ? <span className="pr-masked">🔊 Nghe rồi gõ lại — câu đang ẩn</span>
             : en}
         </div>
         <div className="pr-line-vi">{vi}</div>
