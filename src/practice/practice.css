@@ -193,6 +193,27 @@ body {
 .pr-deck-open { background: rgba(16, 185, 129, 0.18) !important; }
 .pr-drill-open { background: rgba(245, 158, 11, 0.2) !important; }
 
+/* Daily challenge banner */
+.pr-daily {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.14), rgba(16, 185, 129, 0.12));
+  border: 1px solid var(--border);
+}
+.pr-daily-left { display: flex; flex-direction: column; gap: 2px; }
+.pr-daily-label { font-size: 12px; color: var(--muted); }
+.pr-daily-topic { font-size: 16px; font-weight: 700; }
+.pr-daily-right { display: flex; align-items: center; gap: 12px; }
+.pr-daily-streak { font-size: 13px; color: var(--muted); }
+.pr-daily-done { font-size: 14px; font-weight: 600; color: var(--emerald); }
+[data-theme="light"] .pr-daily-done { color: #047857; }
+
 /* Pronunciation drill pairs */
 .pr-pairs {
   display: grid;

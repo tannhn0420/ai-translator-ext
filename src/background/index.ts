@@ -264,6 +264,10 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
     case 'GENERATE_DRILL':
       return await handleGenerateDrill(message as { payload: { sound: string } });
 
+    case 'OPEN_PRACTICE':
+      chrome.tabs.create({ url: chrome.runtime.getURL('src/practice/practice.html') });
+      return { success: true };
+
     default:
       return { success: false, error: 'Unknown message type' };
   }

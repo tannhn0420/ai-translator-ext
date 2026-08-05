@@ -843,6 +843,9 @@ function initContentScript() {
         <button class="rem-known" style="flex:1;padding:7px;border:none;border-radius:8px;background:rgba(16,185,129,0.9);color:#fff;font-size:13px;cursor:pointer;">✓ Đã thuộc</button>
         <button class="rem-hide" style="flex:1;padding:7px;border:1px solid rgba(99,102,241,0.4);border-radius:8px;background:transparent;color:#e2e8f0;font-size:13px;cursor:pointer;">Ẩn</button>
       </div>
+      <div style="text-align:center;margin-top:8px;">
+        <button class="rem-practice" style="background:none;border:none;color:#a5b4fc;cursor:pointer;font-size:12px;">🎯 Luyện nói hôm nay →</button>
+      </div>
     `;
     document.body.appendChild(el);
 
@@ -855,6 +858,10 @@ function initContentScript() {
     el.querySelector('.rem-close')?.addEventListener('click', dismiss);
     el.querySelector('.rem-hide')?.addEventListener('click', dismiss);
     el.querySelector('.rem-tts')?.addEventListener('click', () => speak(card.term, card.lang));
+    el.querySelector('.rem-practice')?.addEventListener('click', () => {
+      dismiss();
+      chrome.runtime.sendMessage({ type: 'OPEN_PRACTICE' }).catch(() => {});
+    });
     el.querySelector('.rem-known')?.addEventListener('click', async () => {
       dismiss();
       try {

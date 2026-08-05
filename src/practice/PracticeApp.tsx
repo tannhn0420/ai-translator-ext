@@ -34,6 +34,31 @@ function youtubeSearchUrl(topic: string) {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(topic + ' english conversation')}`;
 }
 
+const DAILY_TOPICS = [
+  'Gọi món ở nhà hàng', 'Đặt phòng khách sạn', 'Phỏng vấn xin việc', 'Hỏi đường', 'Mua sắm quần áo',
+  'Ở sân bay', 'Đi khám bệnh', 'Cuộc họp công việc', 'Nói về sở thích', 'Kể về cuối tuần',
+  'Đặt lịch hẹn', 'Than phiền dịch vụ', 'Giới thiệu bản thân', 'Nói về thời tiết', 'Gọi điện đặt bàn',
+  'Thuê xe', 'Ở quán cà phê', 'Nói về gia đình', 'Hỏi giá và mặc cả', 'Ở ngân hàng',
+  'Đặt vé xem phim', 'Kế hoạch du lịch', 'Small talk với đồng nghiệp', 'Đi siêu thị', 'Hỏi thông tin tàu xe',
+  'Nói về công việc của bạn', 'Chúc mừng và lời mời', 'Nói về ước mơ', 'Gặp bạn cũ', 'Nói về một bộ phim',
+];
+
+function dailyTopic(): string {
+  const day = Math.floor(Date.now() / 86_400_000);
+  return DAILY_TOPICS[day % DAILY_TOPICS.length];
+}
+
+function bumpDaily(prev: { lastDone: string; streak: number }): { lastDone: string; streak: number } {
+  const today = new Date().toISOString().slice(0, 10);
+  if (prev.lastDone === today) return prev;
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  return { lastDone: today, streak: prev.lastDone === yesterday ? prev.streak + 1 : 1 };
+}
+
+function isToday(dateStr: string): boolean {
+  return dateStr === new Date().toISOString().slice(0, 10);
+}
+
 function pickDeckWords(deck: VocabCard[], source: string): { words: string[]; label: string } {
   const now = Date.now();
   let cards = deck;
@@ -66,6 +91,8 @@ export default function PracticeApp() {
   const [saveMsg, setSaveMsg] = useState('');
   const [stats, setStats] = useState<PracticeStats>(EMPTY_STATS);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [todayTopic, setTodayTopic] = useState('');
+  const [dailyStats, setDailyStats] = useState<{ lastDone: string; streak: number }>({ lastDone: '', streak: 0 });
   const [packTab, setPackTab] = useState<'vocab' | 'phrases' | 'dialogue' | 'passage'>('vocab');
   const [rolePlay, setRolePlay] = useState(false);
   const [dictOpen, setDictOpen] = useState(false);
@@ -102,9 +129,14 @@ export default function PracticeApp() {
           document.documentElement.dataset.theme = th;
         }
       } catch { /* ignore */ }
+      setTodayTopic(dailyTopic());
       try {
         const r = await chrome.storage.local.get({ practiceStats: EMPTY_STATS });
         setStats(r.practiceStats as PracticeStats);
+      } catch { /* ignore */ }
+      try {
+        const r = await chrome.storage.local.get({ dailyChallenge: { lastDone: '', streak: 0 } });
+        setDailyStats(r.dailyChallenge as { lastDone: string; streak: number });
       } catch { /* ignore */ }
       try {
         const r = await chrome.storage.local.get({ practicePacks: {} });
@@ -153,6 +185,16 @@ export default function PracticeApp() {
       chrome.storage.local.set({ practiceStats: next }).catch(() => {});
       return next;
     });
+
+    // Complete today's daily challenge when practicing today's topic.
+    if (todayTopic && topic.trim().toLowerCase() === todayTopic.toLowerCase()) {
+      setDailyStats((prev) => {
+        if (isToday(prev.lastDone)) return prev;
+        const next = bumpDaily(prev);
+        chrome.storage.local.set({ dailyChallenge: next }).catch(() => {});
+        return next;
+      });
+    }
   }
 
   function packKey(t: string, lv: string) {
@@ -374,6 +416,23 @@ export default function PracticeApp() {
           </div>
         )}
       </div>
+
+      {todayTopic && (
+        <div className="pr-daily">
+          <div className="pr-daily-left">
+            <span className="pr-daily-label">📅 Thử thách hôm nay</span>
+            <span className="pr-daily-topic">{todayTopic}</span>
+          </div>
+          <div className="pr-daily-right">
+            {dailyStats.streak > 0 && <span className="pr-daily-streak">🔥 {dailyStats.streak} ngày liên tiếp</span>}
+            {isToday(dailyStats.lastDone) ? (
+              <span className="pr-daily-done">✅ Đã hoàn thành</span>
+            ) : (
+              <button className="pr-generate" onClick={() => generate(todayTopic)} disabled={loading}>Bắt đầu</button>
+            )}
+          </div>
+        </div>
+      )}
 
       {!SR_SUPPORTED && (
         <div className="pr-note">Trình duyệt không hỗ trợ nhận diện giọng nói — phần 🎤 Nói sẽ bị tắt. (Dùng Chrome, cho phép mic.)</div>

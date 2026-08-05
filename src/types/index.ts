@@ -53,7 +53,8 @@ export type MessageType =
   | 'GENERATE_PRACTICE'
   | 'CHAT_TURN'
   | 'ASSESS_SPEAKING'
-  | 'GENERATE_DRILL';
+  | 'GENERATE_DRILL'
+  | 'OPEN_PRACTICE';
 
 export interface ChromeMessage {
   type: MessageType;
