@@ -35,6 +35,7 @@
   ],
   "host_permissions": [
     "https://generativelanguage.googleapis.com/*",
-    "https://api.openai.com/*"
+    "https://api.openai.com/*",
+    "https://api.openverse.org/*"
   ]
 }

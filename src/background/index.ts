@@ -268,6 +268,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
       chrome.tabs.create({ url: chrome.runtime.getURL('src/practice/practice.html') });
       return { success: true };
 
+    case 'FETCH_IMAGE':
+      return await handleFetchImage((message.payload as { query: string }).query);
+
     default:
       return { success: false, error: 'Unknown message type' };
   }
@@ -995,6 +998,26 @@ async function handleAssessSpeaking(request: { payload: { transcript: string; qu
 
   await incrementStats();
   return { success: true, data: assessment };
+}
+
+/**
+ * Fetch a relevant illustration for a term from Openverse (CC-licensed, no API key).
+ * Returns a thumbnail URL served from api.openverse.org.
+ */
+async function handleFetchImage(query: string): Promise<{ success: boolean; data?: { url: string }; error?: string }> {
+  const q = (query || '').trim();
+  if (!q) return { success: false, error: 'Thiếu từ khoá.' };
+  try {
+    const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=3&mature=false`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return { success: false, error: `Openverse ${res.status}` };
+    const data = await res.json();
+    const item = (data.results || [])[0] as { thumbnail?: string; url?: string } | undefined;
+    const img = item?.thumbnail || item?.url || '';
+    return img ? { success: true, data: { url: img } } : { success: false, error: 'Không tìm thấy ảnh phù hợp.' };
+  } catch {
+    return { success: false, error: 'Không tải được ảnh.' };
+  }
 }
 
 // ============================================

@@ -508,6 +508,17 @@ body {
 }
 
 /* AI chat (free-talk) */
+/* Secondary action buttons: colored (not white) text so they read on the tint in
+   both themes and when disabled. */
+.pr-chat-open,
+.pr-deck-open { color: #34d399 !important; border: 1px solid rgba(16, 185, 129, 0.5) !important; }
+.pr-ielts-open,
+.pr-drill-open { color: #fbbf24 !important; border: 1px solid rgba(245, 158, 11, 0.5) !important; }
+[data-theme="light"] .pr-chat-open,
+[data-theme="light"] .pr-deck-open { color: #047857 !important; }
+[data-theme="light"] .pr-ielts-open,
+[data-theme="light"] .pr-drill-open { color: #b45309 !important; }
+
 .pr-chat-open { background: rgba(16, 185, 129, 0.18) !important; }
 
 .pr-chat {

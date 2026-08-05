@@ -54,7 +54,8 @@ export type MessageType =
   | 'CHAT_TURN'
   | 'ASSESS_SPEAKING'
   | 'GENERATE_DRILL'
-  | 'OPEN_PRACTICE';
+  | 'OPEN_PRACTICE'
+  | 'FETCH_IMAGE';
 
 export interface ChromeMessage {
   type: MessageType;

@@ -61,6 +61,7 @@ export default function FlashcardsApp() {
   const [query, setQuery] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm);
   const [msg, setMsg] = useState('');
+  const [findingImg, setFindingImg] = useState(false);
 
   // TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -261,6 +262,21 @@ export default function FlashcardsApp() {
       setMsg('Không đọc được ảnh.');
     }
     e.target.value = '';
+  }
+
+  async function autoImage() {
+    const term = form.term.trim();
+    if (!term || findingImg) return;
+    setFindingImg(true);
+    setMsg('');
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'FETCH_IMAGE', payload: { query: term } });
+      if (res?.success && res.data?.url) setForm((f) => ({ ...f, image: res.data.url }));
+      else setMsg(res?.error || 'Không tìm được ảnh.');
+    } catch {
+      setMsg('Lỗi tìm ảnh.');
+    }
+    setFindingImg(false);
   }
 
   async function onImportPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -491,10 +507,13 @@ export default function FlashcardsApp() {
             <textarea className="fc-textarea" value={form.example} onChange={(e) => setForm((f) => ({ ...f, example: e.target.value }))} />
           </label>
           <div className="fc-field">
-            <span>Ảnh minh hoạ (tự thu nhỏ ~240px)</span>
+            <span>Ảnh minh hoạ (giúp nhớ từ)</span>
             <div className="fc-image-row">
               {form.image && <img className="fc-img-preview" src={form.image} alt="" />}
-              <input type="file" accept="image/*" onChange={onImagePick} />
+              <button className="fc-icon-btn" onClick={autoImage} disabled={!form.term.trim() || findingImg}>
+                {findingImg ? '🔎 Đang tìm…' : '🖼️ Tìm ảnh tự động'}
+              </button>
+              <input type="file" accept="image/*" onChange={onImagePick} title="Hoặc tải ảnh của bạn" />
               {form.image && <button className="fc-icon-btn" onClick={() => setForm((f) => ({ ...f, image: undefined }))}>Xoá ảnh</button>}
             </div>
           </div>
