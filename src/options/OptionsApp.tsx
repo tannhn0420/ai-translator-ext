@@ -2,12 +2,12 @@
 // Options Page - Main Component
 // ============================================
 
-import { useState, useEffect } from 'react';
-import type { AppSettings } from '../types';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import type { AppSettings, PageTranslateMode, Language } from '../types';
 import { PRESET_PROMPTS, DEFAULT_SYSTEM_PROMPT, DEFAULT_TRANSLATION_TEMPLATE } from '../utils/constants';
 import './options.css';
 
-type Tab = 'api' | 'prompts' | 'language' | 'behavior';
+type Tab = 'api' | 'prompts' | 'language' | 'behavior' | 'appearance' | 'backup';
 
 function OptionsApp() {
   const [activeTab, setActiveTab] = useState<Tab>('api');
@@ -35,8 +35,26 @@ function OptionsApp() {
   const [contextAware, setContextAware] = useState(true);
   const [cacheEnabled, setCacheEnabled] = useState(true);
 
+  // Appearance & learning (previously only reachable from popup/practice/flashcards headers)
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [pageTranslateMode, setPageTranslateMode] = useState<PageTranslateMode>('replace');
+  const [pageTargetLang, setPageTargetLang] = useState<Language>('vi');
+  const [pageAutoDomains, setPageAutoDomains] = useState('');
+  const [ttsVoiceEn, setTtsVoiceEn] = useState('');
+  const [ttsVoiceVi, setTtsVoiceVi] = useState('');
+  const [ttsRate, setTtsRate] = useState(0.95);
+  const [reminderEnabled, setReminderEnabled] = useState(true);
+  const [reminderIntervalMin, setReminderIntervalMin] = useState(10);
+  const [vocabAutoImage, setVocabAutoImage] = useState(true);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     loadSettings();
+    const loadVoices = () => setVoices(window.speechSynthesis?.getVoices() || []);
+    loadVoices();
+    if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = loadVoices;
+    return () => { if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = null; };
   }, []);
 
   const loadSettings = async () => {
@@ -62,6 +80,19 @@ function OptionsApp() {
         setDictionaryMode(s.dictionaryModeEnabled !== false);
         setContextAware(s.contextAwareEnabled !== false);
         setCacheEnabled(s.cacheEnabled !== false);
+
+        const th = s.theme === 'light' ? 'light' : 'dark';
+        setTheme(th);
+        document.documentElement.dataset.theme = th;
+        setPageTranslateMode(s.pageTranslateMode === 'bilingual' ? 'bilingual' : 'replace');
+        setPageTargetLang(s.pageTargetLang === 'en' ? 'en' : 'vi');
+        setPageAutoDomains((s.pageAutoDomains || []).join('\n'));
+        setTtsVoiceEn(s.ttsVoiceEn || '');
+        setTtsVoiceVi(s.ttsVoiceVi || '');
+        setTtsRate(typeof s.ttsRate === 'number' ? s.ttsRate : 0.95);
+        setReminderEnabled(s.reminderEnabled !== false);
+        setReminderIntervalMin(s.reminderIntervalMin || 10);
+        setVocabAutoImage(s.vocabAutoImage !== false);
       }
     } catch {
       console.log('Running outside extension context');
@@ -140,6 +171,80 @@ function OptionsApp() {
       setSystemPrompt(preset.systemPrompt);
       setTranslationTemplate(preset.translationTemplate);
     }
+  };
+
+  // ---- Backup / Restore ----
+  // Regenerable data (translation cache, image cache, generated practice packs) is
+  // intentionally excluded to keep the file small.
+  const BACKUP_LOCAL_KEYS = [
+    'vocabDeck',
+    'practiceStats',
+    'practiceDays',
+    'dailyChallenge',
+    'translationHistory',
+  ];
+
+  const exportBackup = async () => {
+    try {
+      const settingsData = await chrome.storage.sync.get(null);
+      const localData = await chrome.storage.local.get(BACKUP_LOCAL_KEYS);
+      const backup = {
+        _type: 'ai-translator-backup',
+        _version: 1,
+        exportedAt: new Date().toISOString(),
+        settings: settingsData,
+        data: localData,
+      };
+      const deckCount = Array.isArray(localData.vocabDeck) ? localData.vocabDeck.length : 0;
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ai-translator-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(`✅ Đã xuất sao lưu (${deckCount} từ vựng).`);
+    } catch {
+      showToast('❌ Xuất sao lưu thất bại.', 'error');
+    }
+  };
+
+  const importBackup = async (file: File) => {
+    let backup: { _type?: string; settings?: Record<string, unknown>; data?: Record<string, unknown> };
+    try {
+      backup = JSON.parse(await file.text());
+    } catch {
+      showToast('❌ File không hợp lệ (không phải JSON).', 'error');
+      return;
+    }
+    if (backup._type !== 'ai-translator-backup' || !backup.settings) {
+      showToast('❌ Đây không phải file sao lưu của AI Translator.', 'error');
+      return;
+    }
+    const deck = backup.data?.vocabDeck;
+    const deckCount = Array.isArray(deck) ? deck.length : 0;
+    const ok = window.confirm(
+      `Khôi phục sẽ GHI ĐÈ cài đặt và dữ liệu hiện tại bằng bản sao lưu` +
+        (deckCount ? ` (${deckCount} từ vựng)` : '') +
+        `.\n\nBạn có chắc muốn tiếp tục?`,
+    );
+    if (!ok) return;
+    try {
+      await chrome.storage.sync.set(backup.settings);
+      if (backup.data && Object.keys(backup.data).length) {
+        await chrome.storage.local.set(backup.data);
+      }
+      await loadSettings();
+      showToast('✅ Đã khôi phục. Mở lại các tab đang mở để áp dụng.');
+    } catch {
+      showToast('❌ Khôi phục thất bại.', 'error');
+    }
+  };
+
+  const onImportFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) void importBackup(file);
+    e.target.value = ''; // allow re-importing the same file
   };
 
   const renderContent = () => {
@@ -517,6 +622,242 @@ function OptionsApp() {
             </div>
           </div>
         );
+
+      case 'appearance':
+        return (
+          <div className="options-section">
+            <h2 className="section-title">🎨 Giao diện &amp; Học tập</h2>
+            <p className="section-desc">
+              Các tuỳ chọn trước đây nằm rải rác ở popup / trang luyện tập / flashcards, nay gom về đây.
+            </p>
+
+            <div className="form-group">
+              <label className="form-label">Giao diện (theme)</label>
+              <select
+                className="form-select"
+                value={theme}
+                onChange={(e) => {
+                  const t = e.target.value as 'dark' | 'light';
+                  setTheme(t);
+                  document.documentElement.dataset.theme = t;
+                  saveField({ theme: t });
+                }}
+              >
+                <option value="dark">🌙 Tối (Dark)</option>
+                <option value="light">☀️ Sáng (Light)</option>
+              </select>
+            </div>
+
+            <h3 className="subsection-title">📄 Dịch toàn trang</h3>
+            <div className="form-group">
+              <label className="form-label">Kiểu hiển thị</label>
+              <select
+                className="form-select"
+                value={pageTranslateMode}
+                onChange={(e) => {
+                  const m = e.target.value as PageTranslateMode;
+                  setPageTranslateMode(m);
+                  saveField({ pageTranslateMode: m });
+                }}
+              >
+                <option value="replace">Thay thế (chỉ hiện bản dịch)</option>
+                <option value="bilingual">Song ngữ (gốc + bản dịch)</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Dịch sang</label>
+              <select
+                className="form-select"
+                value={pageTargetLang}
+                onChange={(e) => {
+                  const l = e.target.value as Language;
+                  setPageTargetLang(l);
+                  saveField({ pageTargetLang: l });
+                }}
+              >
+                <option value="vi">🇻🇳 Tiếng Việt</option>
+                <option value="en">🇬🇧 English</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Tự dịch khi mở các trang này</label>
+              <textarea
+                className="form-textarea"
+                value={pageAutoDomains}
+                onChange={(e) => setPageAutoDomains(e.target.value)}
+                rows={3}
+                placeholder="Mỗi dòng một tên miền, ví dụ:&#10;vnexpress.net&#10;bbc.com"
+              />
+              <p className="form-help">Mỗi dòng một tên miền (không cần www.). Để trống nếu không muốn tự dịch.</p>
+              <div className="btn-row">
+                <button
+                  className="btn btn-primary"
+                  onClick={() =>
+                    saveField({
+                      pageAutoDomains: pageAutoDomains
+                        .split('\n')
+                        .map((d) => d.trim().replace(/^www\./, '').toLowerCase())
+                        .filter(Boolean),
+                    })
+                  }
+                >
+                  💾 Lưu danh sách
+                </button>
+              </div>
+            </div>
+
+            <h3 className="subsection-title">🔊 Giọng đọc (Text-to-Speech)</h3>
+            <div className="form-group">
+              <label className="form-label">Giọng tiếng Anh</label>
+              <select
+                className="form-select"
+                value={ttsVoiceEn}
+                onChange={(e) => {
+                  setTtsVoiceEn(e.target.value);
+                  saveField({ ttsVoiceEn: e.target.value });
+                }}
+              >
+                <option value="">Mặc định hệ thống</option>
+                {voices.filter((v) => v.lang.toLowerCase().startsWith('en')).map((v) => (
+                  <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Giọng tiếng Việt</label>
+              <select
+                className="form-select"
+                value={ttsVoiceVi}
+                onChange={(e) => {
+                  setTtsVoiceVi(e.target.value);
+                  saveField({ ttsVoiceVi: e.target.value });
+                }}
+              >
+                <option value="">Mặc định hệ thống</option>
+                {voices.filter((v) => v.lang.toLowerCase().startsWith('vi')).map((v) => (
+                  <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Tốc độ đọc: {ttsRate.toFixed(2)}×</label>
+              <input
+                type="range"
+                min="0.5"
+                max="1.5"
+                step="0.05"
+                value={ttsRate}
+                style={{ width: '100%' }}
+                onChange={(e) => setTtsRate(parseFloat(e.target.value))}
+                onMouseUp={() => saveField({ ttsRate })}
+                onTouchEnd={() => saveField({ ttsRate })}
+              />
+              <p className="form-help">Kéo để chỉnh; thả ra để lưu.</p>
+            </div>
+
+            <h3 className="subsection-title">📚 Học từ vựng</h3>
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <span className="toggle-label">🖼️ Tự động thêm ảnh minh hoạ</span>
+                <span className="toggle-desc">Tự tải ảnh cho từ (có cache) để dễ nhớ. Tắt nếu mạng yếu.</span>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={vocabAutoImage}
+                  onChange={(e) => {
+                    setVocabAutoImage(e.target.checked);
+                    saveField({ vocabAutoImage: e.target.checked });
+                  }}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+            </div>
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <span className="toggle-label">⏰ Nhắc học định kỳ</span>
+                <span className="toggle-desc">Hiện toast ôn từ trên tab đang mở theo chu kỳ bên dưới</span>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={reminderEnabled}
+                  onChange={(e) => {
+                    setReminderEnabled(e.target.checked);
+                    saveField({ reminderEnabled: e.target.checked });
+                  }}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Chu kỳ nhắc (phút)</label>
+              <input
+                type="number"
+                className="form-input"
+                min="1"
+                max="180"
+                value={reminderIntervalMin}
+                onChange={(e) => setReminderIntervalMin(Math.max(1, parseInt(e.target.value) || 10))}
+                onBlur={() => saveField({ reminderIntervalMin })}
+              />
+              <p className="form-help">Áp dụng khi mở lại tab / reload extension.</p>
+            </div>
+          </div>
+        );
+
+      case 'backup':
+        return (
+          <div className="options-section">
+            <h2 className="section-title">💾 Sao lưu &amp; Khôi phục</h2>
+            <p className="section-desc">
+              Xuất toàn bộ cài đặt, sổ từ vựng và tiến độ luyện tập ra một file JSON — để chuyển sang
+              máy khác hoặc giữ làm bản dự phòng.
+            </p>
+
+            <div className="form-group">
+              <label className="form-label">Xuất sao lưu</label>
+              <p className="form-help">Bao gồm: cài đặt (kể cả API key), sổ từ vựng, thống kê &amp; chuỗi ngày luyện, lịch sử dịch.</p>
+              <div className="btn-row">
+                <button className="btn btn-primary" onClick={exportBackup}>⬇️ Xuất file JSON</button>
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginTop: '24px' }}>
+              <label className="form-label">Khôi phục từ file</label>
+              <p className="form-help">
+                ⚠️ Sẽ <strong>ghi đè</strong> cài đặt và dữ liệu hiện tại. Sẽ có bước xác nhận trước khi ghi.
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                style={{ display: 'none' }}
+                onChange={onImportFile}
+              />
+              <div className="btn-row">
+                <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
+                  ⬆️ Chọn file &amp; khôi phục
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: '24px',
+                padding: '12px 16px',
+                background: 'var(--bg-glass)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-default)',
+                fontSize: '12.5px',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              🔒 File sao lưu chứa API key của bạn ở dạng văn bản thường — hãy giữ nó ở nơi an toàn và
+              không chia sẻ công khai.
+            </div>
+          </div>
+        );
     }
   };
 
@@ -554,6 +895,18 @@ function OptionsApp() {
           onClick={() => setActiveTab('behavior')}
         >
           ⚡ Behavior
+        </button>
+        <button
+          className={`sidebar-nav-item ${activeTab === 'appearance' ? 'active' : ''}`}
+          onClick={() => setActiveTab('appearance')}
+        >
+          🎨 Giao diện &amp; Học
+        </button>
+        <button
+          className={`sidebar-nav-item ${activeTab === 'backup' ? 'active' : ''}`}
+          onClick={() => setActiveTab('backup')}
+        >
+          💾 Sao lưu
         </button>
       </nav>
 

@@ -95,6 +95,15 @@
   line-height: 1.6;
 }
 
+.subsection-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-accent, var(--primary-400, #a5b4fc));
+  margin: 28px 0 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-default);
+}
+
 /* Form Groups */
 .form-group {
   margin-bottom: 24px;
