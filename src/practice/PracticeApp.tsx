@@ -364,29 +364,48 @@ function RolePlay({
   onExit,
 }: {
   dialogue: DialogueLine[];
-  speak: (text: string, lang?: Language) => void;
+  speak: (text: string, lang?: Language, onEnd?: () => void) => void;
   onScore: (score: number) => void;
   onExit: () => void;
 }) {
-  // The learner plays speaker "B"; the app voices speaker "A" (and any other).
   const speakers = useMemo(() => Array.from(new Set(dialogue.map((d) => d.speaker))), [dialogue]);
   const [role, setRole] = useState(speakers[1] || speakers[0] || 'B');
+  const [auto, setAuto] = useState(false);
   const [i, setI] = useState(0);
   const [revealed, setRevealed] = useState(false);
+  const [showAnswer, setShowAnswer] = useState(false);
   const [recognizing, setRecognizing] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [score, setScore] = useState<SpeechScore | null>(null);
   const [scores, setScores] = useState<number[]>([]);
 
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
   const line = dialogue[i];
   const done = i >= dialogue.length;
-  const isUser = line && line.speaker === role;
+  const isUser = !!line && line.speaker === role;
 
   function next() {
+    if (!mounted.current) return;
     setRevealed(false);
+    setShowAnswer(false);
     setTranscript('');
     setScore(null);
     setI((x) => x + 1);
+  }
+
+  function retry() {
+    setRevealed(false);
+    setShowAnswer(false);
+    setTranscript('');
+    setScore(null);
   }
 
   async function userSpeak() {
@@ -396,13 +415,15 @@ function RolePlay({
     const { promise } = recognizeOnce('en-US', setTranscript);
     try {
       const said = await promise;
+      if (!mounted.current) return;
       const sc = scoreSpeech(line.en, said);
       setScore(sc);
       setScores((s) => [...s, sc.score]);
       onScore(sc.score);
     } catch {
-      setTranscript('(không nghe được — kiểm tra quyền micro)');
+      if (mounted.current) setTranscript('(không nghe được — kiểm tra quyền micro)');
     }
+    if (!mounted.current) return;
     setRevealed(true);
     setRecognizing(false);
   }
@@ -410,17 +431,39 @@ function RolePlay({
   function restart() {
     setI(0);
     setRevealed(false);
+    setShowAnswer(false);
     setTranscript('');
     setScore(null);
     setScores([]);
   }
+
+  // Auto mode: app voices its lines and advances; the learner's turn auto-starts the mic.
+  useEffect(() => {
+    if (done || !line || !auto) return;
+    if (isUser) {
+      if (revealed || recognizing) return;
+      const t = setTimeout(() => { void userSpeak(); }, 600);
+      return () => clearTimeout(t);
+    }
+    const t = setTimeout(() => speak(line.en, 'en', () => { if (mounted.current) next(); }), 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [i, auto]);
+
+  // Auto mode: after the learner's line is scored, move on shortly.
+  useEffect(() => {
+    if (!auto || !isUser || !revealed || !score) return;
+    const t = setTimeout(() => { if (mounted.current) next(); }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealed, score, auto]);
 
   if (done) {
     const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
     return (
       <div className="pr-roleplay pr-roleplay-done">
         <div className="pr-empty-emoji">🎉</div>
-        <p>Hoàn thành! Điểm nói trung bình: <b>{avg}%</b></p>
+        <p>Hoàn thành! Điểm nói trung bình: <b>{avg}%</b> ({scores.length} lượt)</p>
         <div className="pr-line-actions" style={{ justifyContent: 'center' }}>
           <button className="pr-act" onClick={restart}>Làm lại</button>
           <button className="pr-act" onClick={onExit}>Thoát</button>
@@ -429,11 +472,22 @@ function RolePlay({
     );
   }
 
+  const progress = Math.round((i / dialogue.length) * 100);
+
   return (
     <div className="pr-roleplay">
+      <div className="pr-progress"><div className="pr-progress-fill" style={{ width: `${progress}%` }} /></div>
+
       <div className="pr-roleplay-bar">
         <span>Đóng vai <b>{role}</b> · Lượt {i + 1}/{dialogue.length}</span>
         <div className="pr-roleplay-controls">
+          <button
+            className={`pr-act ${auto ? 'rec' : ''}`}
+            onClick={() => setAuto((a) => !a)}
+            title="Tự động: máy đọc lời + tự bật mic tới lượt bạn"
+          >
+            {auto ? '⏸ Tự động' : '▶️ Tự động'}
+          </button>
           <select className="pr-select" value={role} onChange={(e) => { setRole(e.target.value); restart(); }}>
             {speakers.map((s) => <option key={s} value={s}>Vai {s}</option>)}
           </select>
@@ -448,7 +502,7 @@ function RolePlay({
             <>
               <div className="pr-turn-cue">🗣️ Lượt của bạn — nói câu này bằng tiếng Anh:</div>
               <div className="pr-line-vi" style={{ fontSize: 15 }}>{line.vi}</div>
-              {revealed && (
+              {(revealed || showAnswer) && (
                 <div className="pr-line-en" style={{ marginTop: 6 }}>
                   {score
                     ? score.tokens.map((t, k) => <span key={k} className={t.ok ? 'ok' : 'miss'}>{t.w} </span>)
@@ -458,13 +512,19 @@ function RolePlay({
               {transcript && <div className="pr-transcript">Bạn nói: “{transcript}”</div>}
               <div className="pr-line-actions">
                 {!revealed ? (
-                  <button className={`pr-act ${recognizing ? 'rec' : ''}`} onClick={userSpeak}>
-                    {recognizing ? '● Đang nghe…' : '🎤 Nói'}
-                  </button>
+                  <>
+                    <button className={`pr-act ${recognizing ? 'rec' : ''}`} onClick={userSpeak}>
+                      {recognizing ? '● Đang nghe…' : '🎤 Nói'}
+                    </button>
+                    {!showAnswer && <button className="pr-act" onClick={() => setShowAnswer(true)}>💡 Xem đáp án</button>}
+                    {showAnswer && <button className="pr-act" onClick={() => speak(line.en, 'en')}>🔊 Nghe mẫu</button>}
+                    <button className="pr-act" onClick={next}>Bỏ qua →</button>
+                  </>
                 ) : (
                   <>
                     <button className="pr-act" onClick={() => speak(line.en, 'en')}>🔊 Nghe mẫu</button>
                     {score && <span className={`pr-score ${score.score >= 70 ? 'good' : 'low'}`}>{score.score}%</span>}
+                    <button className="pr-act" onClick={retry}>🔁 Thử lại</button>
                     <button className="pr-act" onClick={next}>Tiếp →</button>
                   </>
                 )}

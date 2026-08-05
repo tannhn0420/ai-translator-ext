@@ -320,6 +320,18 @@ body {
   padding: 30px 16px;
   color: var(--muted);
 }
+.pr-progress {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.pr-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--indigo), var(--emerald));
+  transition: width 0.3s ease;
+}
 
 @media (max-width: 560px) {
   .pr-vocab-grid { grid-template-columns: 1fr; }
