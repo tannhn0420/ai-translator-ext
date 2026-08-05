@@ -14,6 +14,7 @@ import type {
   VocabCard,
   VocabCardInput,
   PracticePack,
+  ChatMessage,
 } from '../types';
 import {
   getSettings,
@@ -48,6 +49,8 @@ import {
   PAGE_BATCH_MAX_OUTPUT_TOKENS,
   PRACTICE_SYSTEM_PROMPT,
   PRACTICE_TEMPLATE,
+  CHAT_SYSTEM_PROMPT,
+  CHAT_TEMPLATE,
 } from '../utils/constants';
 
 // Listen for messages from popup, options, and content scripts
@@ -245,6 +248,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
 
     case 'GENERATE_PRACTICE':
       return await handleGeneratePractice(message as { payload: { topic: string; level?: string } });
+
+    case 'CHAT_TURN':
+      return await handleChatTurn(message as { payload: { messages: ChatMessage[]; topic: string; level?: string } });
 
     default:
       return { success: false, error: 'Unknown message type' };
@@ -773,6 +779,56 @@ async function handleGeneratePractice(request: { payload: { topic: string; level
   }
   await incrementStats();
   return { success: true, data: pack };
+}
+
+async function handleChatTurn(request: { payload: { messages: ChatMessage[]; topic: string; level?: string } }): Promise<{
+  success: boolean;
+  data?: { reply: string; correction?: string };
+  error?: string;
+}> {
+  const settings = await getSettings();
+  const { messages, topic } = request.payload;
+  const level = request.payload.level || 'intermediate';
+
+  const providers = buildProviderList(settings);
+  if (!providers.some((p) => p.key)) {
+    return { success: false, error: 'Chưa cấu hình API Key hoặc Provider không hợp lệ.' };
+  }
+
+  const history = (messages || []).map((m) => `${m.role === 'user' ? 'Learner' : 'You'}: ${m.text}`).join('\n');
+  const text =
+    `Situation: ${topic}. Learner level: ${level}.\n` +
+    (history
+      ? `Conversation so far (most recent last):\n${history}`
+      : 'The conversation has not started yet — greet the learner warmly and open the topic with a question.');
+
+  let raw = '';
+  let lastError: Error | null = null;
+  for (const p of providers) {
+    if (!p.key) continue;
+    try {
+      await pace();
+      raw = await callProvider(p, text, 'auto', 'en', CHAT_SYSTEM_PROMPT, CHAT_TEMPLATE, 1024);
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err as Error;
+    }
+  }
+  if (!raw) return { success: false, error: lastError?.message || 'Không phản hồi được.' };
+
+  const parsed = extractJson(raw);
+  let reply = '';
+  let correction = '';
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const o = parsed as Record<string, unknown>;
+    reply = typeof o.reply === 'string' ? o.reply : '';
+    correction = typeof o.correction === 'string' ? o.correction : '';
+  }
+  if (!reply) reply = raw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+
+  await incrementStats();
+  return { success: true, data: { reply, correction: correction || undefined } };
 }
 
 // ============================================

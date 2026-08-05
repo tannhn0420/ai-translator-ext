@@ -43,6 +43,7 @@ export default function PracticeApp() {
   const [saveMsg, setSaveMsg] = useState('');
   const [stats, setStats] = useState<PracticeStats>(EMPTY_STATS);
   const [rolePlay, setRolePlay] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   // TTS
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -165,6 +166,14 @@ export default function PracticeApp() {
           <button className="pr-generate" onClick={() => generate()} disabled={!canGenerate}>
             {loading ? 'Đang tạo…' : '✨ Tạo bài luyện'}
           </button>
+          <button
+            className="pr-generate pr-chat-open"
+            onClick={() => topic.trim() && setChatOpen(true)}
+            disabled={!topic.trim() || !SR_SUPPORTED}
+            title={SR_SUPPORTED ? 'Trò chuyện tự do với AI theo chủ đề' : 'Trình duyệt không hỗ trợ mic'}
+          >
+            🤖 Trò chuyện
+          </button>
         </div>
         <div className="pr-chips">
           {TOPIC_SUGGESTIONS.map((s) => (
@@ -184,7 +193,11 @@ export default function PracticeApp() {
         </div>
       )}
 
-      {pack && (
+      {chatOpen && (
+        <ChatMode topic={topic} level={level} speak={speak} onExit={() => setChatOpen(false)} />
+      )}
+
+      {!chatOpen && pack && (
         <div className="pr-content">
           {/* Vocab */}
           {pack.vocab.length > 0 && (
@@ -245,12 +258,128 @@ export default function PracticeApp() {
         </div>
       )}
 
-      {!pack && !loading && !error && (
+      {!chatOpen && !pack && !loading && !error && (
         <div className="pr-empty">
           <div className="pr-empty-emoji">🗣️</div>
-          <p>Chọn hoặc nhập một chủ đề để bắt đầu luyện <b>nói</b> &amp; <b>nghe</b>.</p>
+          <p>Chọn hoặc nhập một chủ đề để bắt đầu luyện <b>nói</b> &amp; <b>nghe</b>, hoặc bấm <b>🤖 Trò chuyện</b>.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- AI conversation partner (free-talk) ----
+
+interface ChatMsg {
+  role: 'user' | 'assistant';
+  text: string;
+  correction?: string;
+}
+
+function ChatMode({
+  topic,
+  level,
+  speak,
+  onExit,
+}: {
+  topic: string;
+  level: string;
+  speak: (text: string, lang?: Language) => void;
+  onExit: () => void;
+}) {
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [thinking, setThinking] = useState(false);
+  const [recognizing, setRecognizing] = useState(false);
+  const [interim, setInterim] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    void turn([]); // AI opens the conversation
+    return () => {
+      mounted.current = false;
+      window.speechSynthesis?.cancel();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    listRef.current?.scrollTo(0, listRef.current.scrollHeight);
+  }, [messages, thinking]);
+
+  async function turn(history: ChatMsg[]) {
+    setThinking(true);
+    try {
+      const payloadMsgs = history.map((m) => ({ role: m.role, text: m.text }));
+      const res = await chrome.runtime.sendMessage({ type: 'CHAT_TURN', payload: { messages: payloadMsgs, topic, level } });
+      if (!mounted.current) return;
+      if (res?.success && res.data?.reply) {
+        const reply: string = res.data.reply;
+        const correction: string = res.data.correction || '';
+        setMessages((m) => [...m, { role: 'assistant', text: reply, correction }]);
+        speak(reply, 'en');
+      } else {
+        setMessages((m) => [...m, { role: 'assistant', text: `⚠️ ${res?.error || 'Không phản hồi được.'}` }]);
+      }
+    } catch {
+      if (mounted.current) setMessages((m) => [...m, { role: 'assistant', text: '⚠️ Lỗi kết nối.' }]);
+    }
+    if (mounted.current) setThinking(false);
+  }
+
+  async function speakTurn() {
+    if (recognizing || thinking) return;
+    setRecognizing(true);
+    setInterim('');
+    const { promise } = recognizeOnce('en-US', setInterim);
+    let said = '';
+    try {
+      said = await promise;
+    } catch {
+      /* no speech captured */
+    }
+    if (!mounted.current) return;
+    setRecognizing(false);
+    setInterim('');
+    if (!said.trim()) return;
+    const nextMsgs: ChatMsg[] = [...messages, { role: 'user', text: said }];
+    setMessages(nextMsgs);
+    await turn(nextMsgs);
+  }
+
+  return (
+    <div className="pr-chat">
+      <div className="pr-chat-head">
+        <span>🤖 Trò chuyện · {topic}</span>
+        <button className="pr-act" onClick={onExit}>Thoát</button>
+      </div>
+      <div className="pr-chat-list" ref={listRef}>
+        {messages.map((m, i) => (
+          <div key={i} className={`pr-msg ${m.role}`}>
+            <div className="pr-bubble">
+              <span>{m.text}</span>
+              {m.role === 'assistant' && <button className="pr-mini" title="Nghe lại" onClick={() => speak(m.text, 'en')}>🔊</button>}
+            </div>
+            {m.correction && <div className="pr-correction">📝 {m.correction}</div>}
+          </div>
+        ))}
+        {(recognizing || interim) && (
+          <div className="pr-msg user"><div className="pr-bubble interim">{interim || '…'}</div></div>
+        )}
+        {thinking && (
+          <div className="pr-msg assistant"><div className="pr-bubble"><span className="pr-typing">Đang nghĩ…</span></div></div>
+        )}
+      </div>
+      <div className="pr-chat-actions">
+        <button
+          className={`pr-generate ${recognizing ? 'rec' : ''}`}
+          onClick={speakTurn}
+          disabled={thinking || recognizing}
+        >
+          {recognizing ? '● Đang nghe… (bấm để dừng)' : '🎤 Nói'}
+        </button>
+      </div>
     </div>
   );
 }

@@ -187,6 +187,20 @@ Rules:
 - Match the requested level. Keep sentences speakable (not too long).
 - IPA must be correct General American. Vietnamese must read naturally.`;
 
+// ============================================
+// AI conversation partner (free-talk speaking)
+// ============================================
+
+export const CHAT_SYSTEM_PROMPT = `You are a warm, patient native English speaker having a casual SPOKEN conversation with a Vietnamese learner. You keep the conversation going, speak like a real person out loud (contractions, short turns), and stay in the situation.`;
+
+export const CHAT_TEMPLATE = `Continue the spoken conversation as the OTHER participant.
+
+{text}
+
+Give your NEXT single turn only — 1-2 short, natural spoken sentences. Usually end with a light follow-up question to keep the learner talking. Match the learner's level. If (and only if) the learner's last message has a clear English mistake, add a very short Vietnamese correction note; otherwise leave correction empty.
+
+Return ONLY JSON (no code fences): {"reply":"<your spoken reply in English>","correction":"<short Vietnamese note, or empty string>"}`;
+
 export const PRESET_PROMPTS = [
   {
     id: 'accurate',

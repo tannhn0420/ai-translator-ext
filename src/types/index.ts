@@ -50,7 +50,8 @@ export type MessageType =
   | 'DELETE_VOCAB'
   | 'IMPORT_VOCAB'
   | 'GET_REMINDER_CARD'
-  | 'GENERATE_PRACTICE';
+  | 'GENERATE_PRACTICE'
+  | 'CHAT_TURN';
 
 export interface ChromeMessage {
   type: MessageType;
@@ -233,6 +234,11 @@ export interface PracticePack {
   vocab: PracticeVocab[];
   phrases: PracticePhrase[];
   dialogue: DialogueLine[];
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  text: string;
 }
 
 // Gemini API types
