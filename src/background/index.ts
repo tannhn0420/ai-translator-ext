@@ -16,6 +16,7 @@ import type {
   PracticePack,
   ChatMessage,
   SpeakingAssessment,
+  DrillPack,
 } from '../types';
 import {
   getSettings,
@@ -54,6 +55,8 @@ import {
   CHAT_TEMPLATE,
   IELTS_SPEAKING_SYSTEM,
   IELTS_SPEAKING_TEMPLATE,
+  DRILL_SYSTEM_PROMPT,
+  DRILL_TEMPLATE,
 } from '../utils/constants';
 
 // Listen for messages from popup, options, and content scripts
@@ -257,6 +260,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
 
     case 'ASSESS_SPEAKING':
       return await handleAssessSpeaking(message as { payload: { transcript: string; question: string } });
+
+    case 'GENERATE_DRILL':
+      return await handleGenerateDrill(message as { payload: { sound: string } });
 
     default:
       return { success: false, error: 'Unknown message type' };
@@ -793,6 +799,82 @@ async function handleGeneratePractice(request: { payload: { topic: string; level
 
   if (settings.cacheEnabled) {
     await setCachedTranslation(makeCacheKey(text, 'vi', usedModel, 'practice3'), JSON.stringify(pack));
+  }
+  await incrementStats();
+  return { success: true, data: pack };
+}
+
+async function handleGenerateDrill(request: { payload: { sound: string } }): Promise<{
+  success: boolean;
+  data?: DrillPack;
+  error?: string;
+}> {
+  const settings = await getSettings();
+  const sound = (request.payload.sound || '').trim();
+  if (!sound) return { success: false, error: 'Hãy chọn một âm.' };
+
+  const providers = buildProviderList(settings);
+  if (!providers.some((p) => p.key)) {
+    return { success: false, error: 'Chưa cấu hình API Key hoặc Provider không hợp lệ.' };
+  }
+  const activeModel = providers[0]?.model || 'unknown';
+
+  if (settings.cacheEnabled) {
+    const cached = await getCachedTranslation(makeCacheKey(sound, 'vi', activeModel, 'drill'));
+    if (cached) {
+      try {
+        return { success: true, data: JSON.parse(cached) as DrillPack };
+      } catch {
+        /* regenerate */
+      }
+    }
+  }
+
+  let raw = '';
+  let usedModel = activeModel;
+  let lastError: Error | null = null;
+  for (const p of providers) {
+    if (!p.key) continue;
+    try {
+      await pace();
+      raw = await callProvider(p, sound, 'auto', 'vi', DRILL_SYSTEM_PROMPT, DRILL_TEMPLATE, PAGE_BATCH_MAX_OUTPUT_TOKENS);
+      usedModel = p.model;
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err as Error;
+    }
+  }
+  if (!raw) return { success: false, error: lastError?.message || 'Không tạo được bài drill.' };
+
+  const parsed = extractJson(raw);
+  if (!parsed || typeof parsed !== 'object') return { success: false, error: 'Kết quả không hợp lệ, thử lại.' };
+  const o = parsed as Record<string, unknown>;
+  const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+
+  const pack: DrillPack = {
+    sound,
+    tip: str(o.tip),
+    pairs: arr(o.pairs)
+      .map((x) => {
+        const p = (x || {}) as Record<string, unknown>;
+        return { a: str(p.a), b: str(p.b), note: str(p.note) || undefined };
+      })
+      .filter((p) => p.a),
+    sentences: arr(o.sentences)
+      .map((x) => {
+        const p = (x || {}) as Record<string, unknown>;
+        return { en: str(p.en), vi: str(p.vi) };
+      })
+      .filter((s) => s.en),
+  };
+  if (pack.pairs.length === 0 && pack.sentences.length === 0) {
+    return { success: false, error: 'Không tạo được nội dung, thử lại.' };
+  }
+
+  if (settings.cacheEnabled) {
+    await setCachedTranslation(makeCacheKey(sound, 'vi', usedModel, 'drill'), JSON.stringify(pack));
   }
   await incrementStats();
   return { success: true, data: pack };

@@ -236,6 +236,26 @@ Assess the answer above against the four IELTS Speaking criteria. Return ONLY JS
   "better": "<a natural Band 8+ model answer in English to the same prompt>"
 }`;
 
+// ============================================
+// Pronunciation drills
+// ============================================
+
+export const DRILL_SYSTEM_PROMPT = `You are a pronunciation coach helping a Vietnamese learner master an English sound they commonly get wrong. Give accurate, practical material and clear Vietnamese guidance about the exact mistake Vietnamese speakers make and how to fix it.`;
+
+export const DRILL_TEMPLATE = `Target sound / contrast to drill: {text}
+
+Return ONLY a JSON object (no markdown, no code fences):
+{
+  "tip": "<a short, concrete Vietnamese tip: how to physically produce this sound and the typical Vietnamese mistake to avoid>",
+  "pairs": [ { "a": "<English word>", "b": "<contrasting English word>", "note": "<very short Vietnamese note on the difference>" } ],
+  "sentences": [ { "en": "<a natural English sentence loaded with the target sound>", "vi": "<Vietnamese translation>" } ]
+}
+
+Rules:
+- pairs: 8 minimal pairs that isolate the target sound/contrast (if the target is not a contrast, use 8 clear example words as "a" with a related word or the same word's tricky form as "b").
+- sentences: 6 natural, speakable sentences rich in the target sound.
+- Keep everything real and useful; Vietnamese must read naturally.`;
+
 export const PRESET_PROMPTS = [
   {
     id: 'accurate',

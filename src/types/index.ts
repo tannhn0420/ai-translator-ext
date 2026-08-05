@@ -52,7 +52,8 @@ export type MessageType =
   | 'GET_REMINDER_CARD'
   | 'GENERATE_PRACTICE'
   | 'CHAT_TURN'
-  | 'ASSESS_SPEAKING';
+  | 'ASSESS_SPEAKING'
+  | 'GENERATE_DRILL';
 
 export interface ChromeMessage {
   type: MessageType;
@@ -244,6 +245,19 @@ export interface PracticePack {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
+}
+
+// Pronunciation drill (minimal pairs + sentences for a target sound)
+export interface MinimalPair {
+  a: string;
+  b: string;
+  note?: string;
+}
+export interface DrillPack {
+  sound: string;
+  tip: string;
+  pairs: MinimalPair[];
+  sentences: PracticePhrase[];
 }
 
 // IELTS-style speaking assessment (4 official criteria)

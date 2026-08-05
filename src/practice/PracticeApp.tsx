@@ -3,7 +3,7 @@
 // ============================================
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PracticePack, DialogueLine, Language, SpeakingAssessment, VocabCard } from '../types';
+import type { PracticePack, DialogueLine, Language, SpeakingAssessment, VocabCard, DrillPack } from '../types';
 import { isSpeechRecognitionSupported, recognizeOnce, scoreSpeech, type SpeechScore, type RecognitionHandle } from './speech';
 
 const TOPIC_SUGGESTIONS = ['Nhà hàng', 'Sân bay', 'Phỏng vấn xin việc', 'Khách sạn', 'Mua sắm', 'Cuộc họp', 'Du lịch', 'Đi khám bệnh'];
@@ -73,6 +73,7 @@ export default function PracticeApp() {
   const [showPassageVi, setShowPassageVi] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [ieltsOpen, setIeltsOpen] = useState(false);
+  const [drillOpen, setDrillOpen] = useState(false);
 
   // Cache of generated packs (instant, token-free topic switching)
   const packCacheRef = useRef<Map<string, PracticePack>>(new Map());
@@ -164,6 +165,7 @@ export default function PracticeApp() {
     setPassageDict(false);
     setChatOpen(false);
     setIeltsOpen(false);
+    setDrillOpen(false);
     setSaveMsg('');
     setError('');
   }
@@ -330,6 +332,14 @@ export default function PracticeApp() {
           >
             📇 Từ sổ
           </button>
+          <button
+            className="pr-generate pr-drill-open"
+            onClick={() => { resetModes(); setDrillOpen(true); }}
+            disabled={!SR_SUPPORTED}
+            title="Luyện phát âm các âm người Việt hay sai"
+          >
+            🔤 Drill âm
+          </button>
         </div>
 
         {deckPicker && (
@@ -384,7 +394,11 @@ export default function PracticeApp() {
         <IeltsMode topic={topic} speak={speak} onExit={() => setIeltsOpen(false)} />
       )}
 
-      {!chatOpen && !ieltsOpen && pack && (
+      {drillOpen && (
+        <DrillMode speak={speak} onScore={recordScore} onExit={() => setDrillOpen(false)} />
+      )}
+
+      {!chatOpen && !ieltsOpen && !drillOpen && pack && (
         <div className="pr-content">
           <div className="pr-packtabs">
             {([
@@ -493,7 +507,7 @@ export default function PracticeApp() {
         </div>
       )}
 
-      {!chatOpen && !ieltsOpen && !pack && !loading && !error && (
+      {!chatOpen && !ieltsOpen && !drillOpen && !pack && !loading && !error && (
         <div className="pr-empty">
           <div className="pr-empty-emoji">🗣️</div>
           <p>Chọn hoặc nhập một chủ đề để bắt đầu luyện <b>nói</b> &amp; <b>nghe</b>, hoặc bấm <b>🤖 Trò chuyện</b>.</p>
@@ -1154,6 +1168,138 @@ function RolePlay({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---- Pronunciation drills ----
+
+const DRILL_SOUNDS: { key: string; label: string }[] = [
+  { key: 'th sounds (θ / ð) as in think and this', label: 'th (θ/ð)' },
+  { key: 'final consonants that Vietnamese speakers drop (cat, bird, help, hard)', label: 'Phụ âm cuối' },
+  { key: '-ed past endings (worked /t/, played /d/, wanted /ɪd/)', label: 'Đuôi -ed' },
+  { key: '-s / -es endings (cats /s/, dogs /z/, watches /ɪz/)', label: 'Đuôi -s/-es' },
+  { key: 'r versus l (rice/lice, right/light)', label: 'r vs l' },
+  { key: 'short vs long i, /ɪ/ vs /iː/ (ship/sheep, bit/beat)', label: 'ship / sheep' },
+  { key: 'sh vs s vs ch (she, see, cheese)', label: 'sh / s / ch' },
+  { key: 'v versus w (vine/wine, vest/west)', label: 'v vs w' },
+];
+
+function WordSpeak({ word, speak, onScore }: { word: string; speak: (t: string, l?: Language) => void; onScore: (n: number) => void }) {
+  const [recognizing, setRecognizing] = useState(false);
+  const [score, setScore] = useState<number | null>(null);
+
+  async function go() {
+    if (recognizing) return;
+    setRecognizing(true);
+    setScore(null);
+    const { promise } = recognizeOnce('en-US', () => {});
+    try {
+      const said = await promise;
+      const sc = scoreSpeech(word, said);
+      setScore(sc.score);
+      onScore(sc.score);
+    } catch {
+      /* ignore */
+    }
+    setRecognizing(false);
+  }
+
+  return (
+    <span className="pr-word">
+      <b>{word}</b>
+      <button className="pr-mini" title="Nghe" onClick={() => speak(word, 'en')}>🔊</button>
+      <button className="pr-mini" title="Nói thử" onClick={go} disabled={!SR_SUPPORTED}>{recognizing ? '●' : '🎤'}</button>
+      {score !== null && <span className={`pr-score ${score >= 70 ? 'good' : 'low'}`}>{score}%</span>}
+    </span>
+  );
+}
+
+function DrillMode({
+  speak,
+  onScore,
+  onExit,
+}: {
+  speak: (text: string, lang?: Language) => void;
+  onScore: (score: number) => void;
+  onExit: () => void;
+}) {
+  const [sound, setSound] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [drill, setDrill] = useState<DrillPack | null>(null);
+  const [error, setError] = useState('');
+
+  async function gen(s: string) {
+    setSound(s);
+    setLoading(true);
+    setError('');
+    setDrill(null);
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'GENERATE_DRILL', payload: { sound: s } });
+      if (res?.success && res.data) setDrill(res.data as DrillPack);
+      else setError(res?.error || 'Không tạo được bài drill.');
+    } catch {
+      setError('Lỗi kết nối. Kiểm tra API key.');
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div className="pr-ielts">
+      <div className="pr-chat-head">
+        <span>🔤 Drill phát âm âm khó</span>
+        <button className="pr-act" onClick={onExit}>Thoát</button>
+      </div>
+
+      <div className="pr-chips" style={{ padding: '12px 14px 0' }}>
+        {DRILL_SOUNDS.map((d) => (
+          <button key={d.key} className={`pr-chip ${sound === d.key ? 'active' : ''}`} onClick={() => gen(d.key)} disabled={loading}>
+            {d.label}
+          </button>
+        ))}
+      </div>
+
+      {error && <div className="pr-error" style={{ margin: '14px' }}>⚠️ {error}</div>}
+      {loading && <div className="pr-loading" style={{ padding: '20px 14px' }}><div className="pr-spinner" /> Đang soạn bài drill…</div>}
+
+      {drill && (
+        <div style={{ padding: '0 14px 14px' }}>
+          {drill.tip && <div className="pr-savemsg" style={{ marginTop: 14 }}>💡 {drill.tip}</div>}
+
+          {drill.pairs.length > 0 && (
+            <section className="pr-section" style={{ marginTop: 16 }}>
+              <div className="pr-section-head"><h2>Cặp từ &amp; ví dụ</h2></div>
+              <div className="pr-pairs">
+                {drill.pairs.map((p, i) => (
+                  <div className="pr-pair" key={i}>
+                    <div className="pr-pair-words">
+                      <WordSpeak word={p.a} speak={speak} onScore={onScore} />
+                      {p.b && <><span className="pr-pair-vs">↔</span><WordSpeak word={p.b} speak={speak} onScore={onScore} /></>}
+                    </div>
+                    {p.note && <div className="pr-pair-note">{p.note}</div>}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {drill.sentences.length > 0 && (
+            <section className="pr-section">
+              <div className="pr-section-head"><h2>Câu luyện</h2></div>
+              {drill.sentences.map((s, i) => (
+                <PracticeLine key={i} en={s.en} vi={s.vi} onSpeak={speak} onScore={onScore} />
+              ))}
+            </section>
+          )}
+        </div>
+      )}
+
+      {!drill && !loading && !error && (
+        <div className="pr-empty" style={{ padding: '40px 20px' }}>
+          <div className="pr-empty-emoji">🔤</div>
+          <p>Chọn một âm ở trên để bắt đầu luyện phát âm.</p>
+        </div>
+      )}
     </div>
   );
 }

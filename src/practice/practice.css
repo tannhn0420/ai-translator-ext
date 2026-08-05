@@ -191,6 +191,39 @@ body {
 .pr-passage-vi { color: var(--muted); font-size: 13px; font-style: italic; }
 
 .pr-deck-open { background: rgba(16, 185, 129, 0.18) !important; }
+.pr-drill-open { background: rgba(245, 158, 11, 0.2) !important; }
+
+/* Pronunciation drill pairs */
+.pr-pairs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.pr-pair {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.pr-pair-words {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pr-pair-vs { color: var(--muted); }
+.pr-pair-note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.pr-word {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 15px;
+}
+.pr-word b { margin-right: 2px; }
+
+@media (max-width: 560px) {
+  .pr-pairs { grid-template-columns: 1fr; }
+}
 .pr-deck-picker {
   display: flex;
   align-items: center;
