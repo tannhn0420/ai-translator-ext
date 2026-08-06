@@ -32,9 +32,9 @@ export async function callGeminiAPI(
   const targetLangName = LANGUAGE_LABELS[targetLang];
 
   const userPrompt = translationTemplate
-    .replace('{text}', text)
-    .replace('{source_lang}', sourceLangName)
-    .replace('{target_lang}', targetLangName);
+    .replace('{text}', () => text) // function replacer: user text may contain $& / $1 / $$
+    .replace('{source_lang}', () => sourceLangName)
+    .replace('{target_lang}', () => targetLangName);
 
   const requestBody: GeminiRequest = {
     system_instruction: {
@@ -85,10 +85,13 @@ export async function callGeminiAPI(
     throw new Error('Không nhận được kết quả dịch từ AI.');
   }
 
-  const translatedText = data.candidates[0].content.parts
-    .map((part) => part.text)
-    .join('');
+  // A candidate blocked by SAFETY/RECITATION has no content/parts — guard before mapping.
+  const parts = data.candidates[0]?.content?.parts;
+  if (!parts || parts.length === 0) {
+    throw new Error('AI không trả nội dung (có thể bị bộ lọc an toàn chặn). Thử đoạn khác.');
+  }
 
+  const translatedText = parts.map((part) => part.text).join('');
   return translatedText.trim();
 }
 
@@ -117,9 +120,9 @@ export async function callGeminiAPIStream(
   const sourceLangName = sourceLang === 'auto' ? 'the detected language' : LANGUAGE_LABELS[sourceLang];
   const targetLangName = LANGUAGE_LABELS[targetLang];
   const userPrompt = translationTemplate
-    .replace('{text}', text)
-    .replace('{source_lang}', sourceLangName)
-    .replace('{target_lang}', targetLangName);
+    .replace('{text}', () => text) // function replacer: user text may contain $& / $1 / $$
+    .replace('{source_lang}', () => sourceLangName)
+    .replace('{target_lang}', () => targetLangName);
 
   const requestBody: GeminiRequest = {
     system_instruction: { parts: [{ text: systemPrompt }] },

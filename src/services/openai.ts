@@ -32,9 +32,9 @@ export async function callOpenAIAPI(
   const targetLangName = LANGUAGE_LABELS[targetLang];
 
   const userPrompt = translationTemplate
-    .replace('{text}', text)
-    .replace('{source_lang}', sourceLangName)
-    .replace('{target_lang}', targetLangName);
+    .replace('{text}', () => text) // function replacer: user text may contain $& / $1 / $$
+    .replace('{source_lang}', () => sourceLangName)
+    .replace('{target_lang}', () => targetLangName);
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -60,7 +60,13 @@ export async function callOpenAIAPI(
   }
 
   const data = await response.json();
-  return data.choices[0].message.content.trim();
+  // OpenAI-compatible proxies can return 200 with empty choices or null content
+  // (refusal / content filter). Guard so we throw a clear error instead of a TypeError.
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string') {
+    throw new Error(data?.error?.message || 'AI không trả nội dung.');
+  }
+  return content.trim();
 }
 
 /**
@@ -88,9 +94,9 @@ export async function callOpenAIAPIStream(
   const sourceLangName = sourceLang === 'auto' ? 'the detected language' : LANGUAGE_LABELS[sourceLang];
   const targetLangName = LANGUAGE_LABELS[targetLang];
   const userPrompt = translationTemplate
-    .replace('{text}', text)
-    .replace('{source_lang}', sourceLangName)
-    .replace('{target_lang}', targetLangName);
+    .replace('{text}', () => text) // function replacer: user text may contain $& / $1 / $$
+    .replace('{source_lang}', () => sourceLangName)
+    .replace('{target_lang}', () => targetLangName);
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',

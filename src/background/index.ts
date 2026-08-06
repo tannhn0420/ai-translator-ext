@@ -113,11 +113,13 @@ async function streamTranslate(port: chrome.runtime.Port, req: StreamRequest): P
   const { template, mode } = selectTemplate(settings, text, context, dictionaryMode);
   const systemPrompt = customPrompt || settings.systemPrompt;
 
-  // Cache hit → deliver immediately, no stream.
+  // Cache hit → deliver immediately, no stream. Key on the primary (first configured-with-
+  // key) model for both read and write so the streaming path shares cache with handleTranslate.
   const providers = buildProviderList(settings);
+  const cacheModel = providers.find((p) => p.key)?.model || 'unknown';
+  const cacheKey = makeCacheKey(text, targetLang, cacheModel, mode);
   if (settings.cacheEnabled) {
-    const key = makeCacheKey(text, targetLang, providers[0]?.model || 'unknown', mode);
-    const cached = await getCachedTranslation(key);
+    const cached = await getCachedTranslation(cacheKey);
     if (cached) {
       safePost(port, { type: 'done', full: cached });
       return;
@@ -155,8 +157,7 @@ async function streamTranslate(port: chrome.runtime.Port, req: StreamRequest): P
   }
 
   if (settings.cacheEnabled && usedProviderId) {
-    const usedModel = providers.find((pr) => pr.id === usedProviderId)?.model || 'unknown';
-    await setCachedTranslation(makeCacheKey(text, targetLang, usedModel, mode), full);
+    await setCachedTranslation(cacheKey, full);
   }
   if (mode !== 'dictionary') {
     await addToHistory({
@@ -373,7 +374,7 @@ function selectTemplate(
     template = DICTIONARY_TEMPLATE;
     mode = 'dictionary';
   } else if (context && settings.contextAwareEnabled && context.trim().length > 0) {
-    template = CONTEXT_TRANSLATION_TEMPLATE.replace('{context}', context.substring(0, CONTEXT_MAX_CHARS));
+    template = CONTEXT_TRANSLATION_TEMPLATE.replace('{context}', () => context.substring(0, CONTEXT_MAX_CHARS));
     mode = 'context';
   }
   return { template, mode };
@@ -1129,25 +1130,20 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab?.id) return;
+  const tabId = tab.id;
+  // sendMessage rejects on pages with no content script (chrome://, Web Store, PDF viewer,
+  // pages loaded before install). Swallow so it doesn't surface as an unhandled rejection.
+  const send = (msg: unknown) => chrome.tabs.sendMessage(tabId, msg).catch(() => {});
 
   if (info.menuItemId === 'translate-selection' && info.selectionText) {
-    chrome.tabs.sendMessage(tab.id, {
-      type: 'TRANSLATE_SELECTION',
-      payload: { text: info.selectionText },
-    });
+    send({ type: 'TRANSLATE_SELECTION', payload: { text: info.selectionText } });
   } else if (info.menuItemId === 'translate-selection-bilingual') {
-    chrome.tabs.sendMessage(tab.id, {
-      type: 'TRANSLATE_SELECTION_INLINE',
-      payload: { mode: 'bilingual' },
-    });
+    send({ type: 'TRANSLATE_SELECTION_INLINE', payload: { mode: 'bilingual' } });
   } else if (info.menuItemId === 'translate-selection-replace') {
-    chrome.tabs.sendMessage(tab.id, {
-      type: 'TRANSLATE_SELECTION_INLINE',
-      payload: { mode: 'replace' },
-    });
+    send({ type: 'TRANSLATE_SELECTION_INLINE', payload: { mode: 'replace' } });
   } else if (info.menuItemId === 'translate-page') {
     const settings = await getSettings();
-    chrome.tabs.sendMessage(tab.id, {
+    send({
       type: 'TRANSLATE_PAGE',
       payload: {
         mode: settings.pageTranslateMode || 'replace',

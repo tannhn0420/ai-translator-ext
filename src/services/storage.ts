@@ -142,24 +142,30 @@ export async function deleteHistoryItem(id: string): Promise<void> {
 }
 
 /**
- * Increment translation counter and reset daily counter if needed
+ * Increment translation counter and reset daily counter if needed.
+ * Fire-and-forget telemetry: never throw — a failed stats write (e.g. sync
+ * write-rate quota during rapid lookups) must not discard a good translation.
  */
 export async function incrementStats(): Promise<void> {
-  const settings = await getSettings();
-  const today = new Date().toISOString().split('T')[0];
+  try {
+    const settings = await getSettings();
+    const today = new Date().toISOString().split('T')[0];
 
-  const updates: Partial<AppSettings> = {
-    totalTranslations: settings.totalTranslations + 1,
-  };
+    const updates: Partial<AppSettings> = {
+      totalTranslations: settings.totalTranslations + 1,
+    };
 
-  if (settings.lastResetDate !== today) {
-    updates.apiCallsToday = 1;
-    updates.lastResetDate = today;
-  } else {
-    updates.apiCallsToday = settings.apiCallsToday + 1;
+    if (settings.lastResetDate !== today) {
+      updates.apiCallsToday = 1;
+      updates.lastResetDate = today;
+    } else {
+      updates.apiCallsToday = settings.apiCallsToday + 1;
+    }
+
+    await saveSettings(updates);
+  } catch (e) {
+    console.warn('incrementStats failed (ignored):', e);
   }
-
-  await saveSettings(updates);
 }
 
 // ============================================
