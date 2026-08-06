@@ -635,11 +635,18 @@ function initContentScript() {
   /** Wire the "Song ngữ" / "Ghi đè" buttons in the bubble to translate the selected block(s) in place. */
   function wireInlineTranslate(scope: HTMLElement) {
     const run = (mode: PageTranslateMode) => {
-      if (!currentSelectionRange) {
-        showInlineToast('Không còn vùng chọn. Hãy bôi đen lại.', false);
+      // Prefer the range captured at highlight time; fall back to the live selection
+      // (in case it was never captured), so the buttons don't dead-end.
+      let range = currentSelectionRange?.cloneRange() || null;
+      if (!range || !range.toString().trim()) {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) range = sel.getRangeAt(0).cloneRange();
+      }
+      if (!range || !range.toString().trim()) {
+        showInlineToast('Không còn vùng chọn. Hãy bôi đen lại rồi bấm.', false);
         return;
       }
-      runInlineSelectionTranslate(currentSelectionRange.cloneRange(), mode);
+      runInlineSelectionTranslate(range, mode);
     };
     scope.querySelector('.ai-inline-bi-btn')?.addEventListener('click', () => run('bilingual'));
     scope.querySelector('.ai-inline-rep-btn')?.addEventListener('click', () => run('replace'));

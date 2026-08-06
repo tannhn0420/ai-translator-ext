@@ -6,7 +6,7 @@
 // the passage in place or inserting a bilingual translation under it — both preserve
 // inline formatting (bold, links, …).
 
-import { collectBlocks } from './segmenter';
+import { collectBlocks, nearestBlockAncestor } from './segmenter';
 import { serializeBlock, applyTranslation } from './serialize';
 import { PAGE_BATCH_MAX_ITEMS, PAGE_BATCH_MAX_CHARS } from '../../utils/constants';
 import type {
@@ -25,21 +25,56 @@ export function detectTarget(text: string): Language {
   return VI_RE.test(text) ? 'en' : 'vi';
 }
 
-/** Leaf blocks that the selection range overlaps. */
+/** Reliable "does this element's content overlap the range?" test (compareBoundaryPoints
+ *  is far more dependable across engines than Range.intersectsNode). */
+function overlapsRange(range: Range, el: HTMLElement): boolean {
+  try {
+    const elRange = el.ownerDocument.createRange();
+    elRange.selectNodeContents(el);
+    // Overlap iff range.start < el.end AND range.end > el.start.
+    return (
+      range.compareBoundaryPoints(Range.START_TO_END, elRange) > 0 &&
+      range.compareBoundaryPoints(Range.END_TO_START, elRange) < 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Leaf blocks that the selection range overlaps. Anchors on the start/end blocks so a
+ *  selection is always resolvable, even for a partial highlight inside one paragraph. */
 function blocksForRange(range: Range, targetLang: Language): HTMLElement[] {
+  const startBlock = nearestBlockAncestor(range.startContainer);
+  const endBlock = nearestBlockAncestor(range.endContainer);
+
   const node: Node = range.commonAncestorContainer;
   const container = (node.nodeType === Node.TEXT_NODE ? node.parentElement : node) as HTMLElement | null;
-  if (!container) return [];
 
-  const all = collectBlocks(targetLang, container);
-  const overlapping = all.filter((el) => {
-    try {
-      return range.intersectsNode(el);
-    } catch {
-      return false;
+  const seen = new Set<HTMLElement>();
+  const out: HTMLElement[] = [];
+  const add = (el: HTMLElement | null) => {
+    if (el && el.isConnected && !seen.has(el)) {
+      seen.add(el);
+      out.push(el);
     }
-  });
-  return overlapping;
+  };
+
+  // The block where the selection begins is always a candidate.
+  add(startBlock);
+
+  // Middle blocks: collect leaf blocks in the common ancestor (language-agnostic — the
+  // user explicitly chose this passage) and keep those the range actually overlaps.
+  if (container && startBlock !== endBlock) {
+    for (const el of collectBlocks(targetLang, container, { ignoreLangGate: true })) {
+      if (overlapsRange(range, el)) add(el);
+    }
+  }
+
+  // …and the block where it ends.
+  add(endBlock);
+
+  out.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  return out;
 }
 
 function chunkItems(items: BatchTranslateItem[]): BatchTranslateItem[][] {

@@ -80,6 +80,21 @@ function nearestBlock(node: Node): HTMLElement | null {
   return null;
 }
 
+/**
+ * Nearest block ancestor of any node (the node itself counts if it's a block
+ * element). Used by selection translate to anchor on the block(s) a range touches.
+ */
+export function nearestBlockAncestor(node: Node): HTMLElement | null {
+  let el: Element | null =
+    node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
+  while (el) {
+    if (isSkippedElement(el)) return null;
+    if (isBlockTag(el)) return el as HTMLElement;
+    el = el.parentElement;
+  }
+  return null;
+}
+
 /** Text that carries no meaning to translate (whitespace, numbers, symbols, bare URLs). */
 function isTranslatableText(text: string): boolean {
   const t = text.trim();
@@ -115,6 +130,7 @@ function isVisible(el: HTMLElement): boolean {
 export function collectBlocks(
   targetLang: Language,
   root: HTMLElement = document.body,
+  opts: { ignoreLangGate?: boolean } = {},
 ): HTMLElement[] {
   if (!root) return [];
 
@@ -146,8 +162,9 @@ export function collectBlocks(
     if (toRemove.has(b)) continue;
     if (b.hasAttribute('data-ai-translated')) continue;
     if (!isVisible(b)) continue;
-    // Final language gate on the block's own combined text.
-    if (!shouldTranslateForLang(b.textContent || '', targetLang)) continue;
+    // Final language gate on the block's own combined text. Skipped for explicit
+    // selection translate — the user chose this passage, so honour it regardless.
+    if (!opts.ignoreLangGate && !shouldTranslateForLang(b.textContent || '', targetLang)) continue;
     leaves.push(b);
     if (leaves.length >= PAGE_TRANSLATE_MAX_BLOCKS) break;
   }
