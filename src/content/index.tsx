@@ -635,21 +635,30 @@ function initContentScript() {
   /** Wire the "Song ngữ" / "Ghi đè" buttons in the bubble to translate the selected block(s) in place. */
   function wireInlineTranslate(scope: HTMLElement) {
     const run = (mode: PageTranslateMode) => {
-      // Prefer the range captured at highlight time; fall back to the live selection
-      // (in case it was never captured), so the buttons don't dead-end.
-      let range = currentSelectionRange?.cloneRange() || null;
-      if (!range || !range.toString().trim()) {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) range = sel.getRangeAt(0).cloneRange();
+      try {
+        // Prefer the range captured at highlight time; fall back to the live selection
+        // (in case it was never captured), so the buttons don't dead-end.
+        let range = currentSelectionRange?.cloneRange() || null;
+        if (!range || !range.toString().trim()) {
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0 && !sel.isCollapsed) range = sel.getRangeAt(0).cloneRange();
+        }
+        if (!range || !range.toString().trim()) {
+          console.warn('[AI Translator] inline translate: no selection range available');
+          showInlineToast('Không còn vùng chọn. Hãy bôi đen lại rồi bấm.', false);
+          return;
+        }
+        void runInlineSelectionTranslate(range, mode);
+      } catch (err) {
+        console.warn('[AI Translator] inline translate error:', err);
+        showInlineToast('Lỗi khi dịch đoạn. Mở Console (F12) để xem chi tiết.', false);
       }
-      if (!range || !range.toString().trim()) {
-        showInlineToast('Không còn vùng chọn. Hãy bôi đen lại rồi bấm.', false);
-        return;
-      }
-      runInlineSelectionTranslate(range, mode);
     };
-    scope.querySelector('.ai-inline-bi-btn')?.addEventListener('click', () => run('bilingual'));
-    scope.querySelector('.ai-inline-rep-btn')?.addEventListener('click', () => run('replace'));
+    const bi = scope.querySelector('.ai-inline-bi-btn');
+    const rep = scope.querySelector('.ai-inline-rep-btn');
+    if (!bi || !rep) console.warn('[AI Translator] inline translate buttons not found in bubble');
+    bi?.addEventListener('click', () => run('bilingual'));
+    rep?.addEventListener('click', () => run('replace'));
   }
 
   /** Show a loader near the selection, translate the block(s) in place, then confirm. */
@@ -672,7 +681,8 @@ function initContentScript() {
       const res = await translateSelection(range, mode);
       loader.remove();
       showInlineToast(res.msg, res.ok);
-    } catch {
+    } catch (err) {
+      console.warn('[AI Translator] translateSelection threw:', err);
       loader.remove();
       showInlineToast('Lỗi dịch thuật. Vui lòng thử lại.', false);
     }

@@ -73,8 +73,58 @@ function blocksForRange(range: Range, targetLang: Language): HTMLElement[] {
   // …and the block where it ends.
   add(endBlock);
 
+  // Fallbacks so a valid selection is (almost) never "unresolvable":
+  if (out.length === 0) add(nearestBlockAncestor(node));                 // common-ancestor's block
+  if (out.length === 0 && container && (container.textContent || '').trim().length >= 2) {
+    add(container);                                                       // the container element itself
+  }
+
   out.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
   return out;
+}
+
+/**
+ * Last-resort fallback: translate the raw selected text and drop it straight into the range.
+ * Uses TRANSLATE_BATCH (single item) so the result is the clean translation only — the plain
+ * TRANSLATE_TEXT path returns a labelled "English:/Vietnamese:" block unsuitable for insertion.
+ * Loses inline formatting within the selection, but guarantees a visible result even when
+ * block detection/serialization can't handle the page's structure.
+ */
+async function translateRangeAsText(
+  range: Range,
+  selText: string,
+  mode: PageTranslateMode,
+  targetLang: Language,
+): Promise<boolean> {
+  let translated = '';
+  try {
+    const resp: BatchTranslateResponse = await chrome.runtime.sendMessage({
+      type: 'TRANSLATE_BATCH',
+      payload: { items: [{ i: 0, text: selText }], targetLang },
+    });
+    translated = resp?.data?.[0] || '';
+  } catch {
+    return false;
+  }
+  if (!translated.trim()) return false;
+
+  try {
+    if (mode === 'bilingual') {
+      const span = document.createElement('span');
+      span.className = 'ai-tr-bilingual';
+      span.setAttribute('data-ai-translated', '1');
+      span.textContent = ` (${translated})`;
+      const at = range.cloneRange();
+      at.collapse(false); // insert right after the selection
+      at.insertNode(span);
+    } else {
+      range.deleteContents();
+      range.insertNode(document.createTextNode(translated));
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function chunkItems(items: BatchTranslateItem[]): BatchTranslateItem[][] {
@@ -127,11 +177,10 @@ export async function translateSelection(
   if (!selText.trim()) return { ok: false, msg: 'Chưa chọn nội dung.' };
 
   const targetLang = detectTarget(selText);
-  const blocks = blocksForRange(range, targetLang);
-  if (blocks.length === 0) {
-    return { ok: false, msg: 'Không tìm thấy đoạn để dịch (hoặc đã ở ngôn ngữ đích).' };
-  }
 
+  // Primary path: translate the whole block(s) the selection touches, preserving inline
+  // formatting. Serialize only blocks that are fresh and not oversized.
+  const blocks = blocksForRange(range, targetLang);
   const entries: { el: HTMLElement; map: Node[] }[] = [];
   const items: BatchTranslateItem[] = [];
   for (const el of blocks) {
@@ -142,7 +191,6 @@ export async function translateSelection(
     entries.push({ el, map });
     items.push({ i, text });
   }
-  if (items.length === 0) return { ok: false, msg: 'Đoạn này đã được dịch rồi.' };
 
   let applied = 0;
   for (const batch of chunkItems(items)) {
@@ -166,9 +214,22 @@ export async function translateSelection(
     }
   }
 
-  if (applied === 0) return { ok: false, msg: 'Dịch thất bại. Kiểm tra API key / hạn mức.' };
-  return {
-    ok: true,
-    msg: mode === 'bilingual' ? '✅ Đã chèn bản dịch song ngữ' : '✅ Đã ghi đè bản dịch',
-  };
+  if (applied > 0) {
+    return {
+      ok: true,
+      msg: mode === 'bilingual' ? '✅ Đã chèn bản dịch song ngữ' : '✅ Đã ghi đè bản dịch',
+    };
+  }
+
+  // Fallback: block-based translation produced nothing (no clean block, block oversized,
+  // already translated, or the batch failed). Translate the raw selected text and insert it
+  // directly — always yields a visible result for a real selection.
+  const ok = await translateRangeAsText(range, selText, mode, targetLang);
+  if (ok) {
+    return {
+      ok: true,
+      msg: mode === 'bilingual' ? '✅ Đã chèn bản dịch song ngữ' : '✅ Đã ghi đè bản dịch',
+    };
+  }
+  return { ok: false, msg: 'Dịch thất bại. Kiểm tra API key / hạn mức trong Cài đặt.' };
 }
