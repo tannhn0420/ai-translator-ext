@@ -25,9 +25,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["src/content/index.tsx"],
-      "css": ["src/content/styles.css"],
-      "all_frames": true,
-      "match_about_blank": true
+      "css": ["src/content/styles.css"]
     }
   ],
   "permissions": [

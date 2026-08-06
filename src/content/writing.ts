@@ -2,13 +2,17 @@
 // Writing Assistant — Grammarly-style proofread panel for editable fields.
 // ============================================
 // Shows a floating ✍️ button when an editable field (textarea / text input /
-// contenteditable) is focused. Clicking it proofreads the field's text via the
-// PROOFREAD message and shows a panel: corrected text, issues with Vietnamese
-// explanations, a CEFR level estimate, and mode chips (Sửa / Tự nhiên / Trang
-// trọng / Ngắn gọn / IELTS). "Áp dụng" writes the corrected text back.
+// contenteditable / role=textbox) is focused; clicking it proofreads the text
+// via the PROOFREAD message and opens a panel with the corrected text, issues
+// (Vietnamese explanations), a CEFR level estimate, and mode chips.
 //
-// Cost/privacy by design: text is sent to the model ONLY when the user clicks —
-// there is no as-you-type checking. A global setting gates the button entirely.
+// Works across SAME-ORIGIN iframes too (e.g. Jira's TinyMCE editor lives in an
+// iframe): the top-frame script reaches into each accessible iframe document and
+// attaches its listeners there, then builds its UI inside that same document.
+// (Cross-origin iframes can't be reached and are skipped.)
+//
+// Cost/privacy by design: the model is called ONLY on click (no as-you-type); a
+// global setting gates the button; password/number/etc. inputs are excluded.
 
 import type { ProofreadResult, WritingMode } from '../types';
 
@@ -29,17 +33,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 const MIN_CHARS = 6;
-
-// True when this script runs inside a sub-frame (e.g. a TinyMCE editor iframe). The panel
-// is then pinned to the frame's top-left instead of below the field, which would otherwise
-// be clipped by a short editor iframe.
-const IN_FRAME = (() => {
-  try {
-    return window.top !== window.self;
-  } catch {
-    return true;
-  }
-})();
+const EDITOR_HOST_SELECTOR = '[contenteditable="true"],[contenteditable=""],[role="textbox"]';
 
 function esc(s: string): string {
   const d = document.createElement('div');
@@ -61,20 +55,13 @@ function isEditableField(el: Element | null): el is HTMLElement {
   if (tag === 'INPUT') {
     const inp = el as HTMLInputElement;
     const t = (inp.type || 'text').toLowerCase();
-    // Text-like inputs only — never password / payment / search-chips / etc.
     return ['text', 'search', 'email', 'url', ''].includes(t) && !inp.readOnly && !inp.disabled;
   }
   if (el.isContentEditable) return true;
-  // Rich editors (ProseMirror/Jira, Slate, Draft.js…) expose role="textbox"; the focused
-  // node may be a wrapper, so accept it if it or an ancestor is an editable host.
   if (el.closest(EDITOR_HOST_SELECTOR)) return true;
   return false;
 }
 
-/** Selector for editable "hosts" of rich editors. */
-const EDITOR_HOST_SELECTOR = '[contenteditable="true"],[contenteditable=""],[role="textbox"]';
-
-/** Resolve the editing host of a rich editor (or the field element itself). */
 function resolveField(el: HTMLElement): HTMLElement {
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return el;
   if (el.isContentEditable) {
@@ -83,30 +70,43 @@ function resolveField(el: HTMLElement): HTMLElement {
   return (el.closest(EDITOR_HOST_SELECTOR) as HTMLElement) || el;
 }
 
+function winOf(el: HTMLElement): Window & typeof globalThis {
+  return (el.ownerDocument.defaultView || window) as Window & typeof globalThis;
+}
+
+function isTextInput(el: HTMLElement): boolean {
+  const win = winOf(el);
+  return el instanceof win.HTMLTextAreaElement || el instanceof win.HTMLInputElement;
+}
+
 function readText(el: HTMLElement): string {
-  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return el.value;
+  if (isTextInput(el)) return (el as HTMLTextAreaElement | HTMLInputElement).value;
   return el.innerText;
 }
 
-/** Write text back so framework-controlled inputs (React etc.) actually update. */
+/** Write text back so framework-controlled inputs (React etc.) actually update. Handles
+ *  fields that live in another (same-origin iframe) realm. */
 function writeText(el: HTMLElement, text: string): void {
-  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
-    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const win = winOf(el);
+  const doc = el.ownerDocument;
+  if (isTextInput(el)) {
+    const isTextarea = el instanceof win.HTMLTextAreaElement;
+    const proto = isTextarea ? win.HTMLTextAreaElement.prototype : win.HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
     if (setter) setter.call(el, text);
-    else el.value = text;
+    else (el as HTMLTextAreaElement | HTMLInputElement).value = text;
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   } else {
     el.focus();
     let ok = false;
     try {
-      const sel = window.getSelection();
-      const range = document.createRange();
+      const sel = win.getSelection();
+      const range = doc.createRange();
       range.selectNodeContents(el);
       sel?.removeAllRanges();
       sel?.addRange(range);
-      ok = document.execCommand('insertText', false, text);
+      ok = doc.execCommand('insertText', false, text);
     } catch {
       ok = false;
     }
@@ -115,55 +115,114 @@ function writeText(el: HTMLElement, text: string): void {
   }
 }
 
+// --- Multi-document wiring (top frame + same-origin iframes) ---
+
+const attachedDocs = new WeakSet<Document>();
+const styledDocs = new WeakSet<Document>();
+const framesWithLoad = new WeakSet<HTMLIFrameElement>();
+
+export function initWritingAssistant(enabledGetter: () => boolean): void {
+  getEnabled = enabledGetter;
+  attachDoc(document);
+  scanFrames();
+  // New editor iframes (e.g. a Jira comment box opened later) appear via DOM mutations.
+  try {
+    const mo = new MutationObserver(() => scanFrames());
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  } catch {
+    /* ignore */
+  }
+}
+
+function attachDoc(doc: Document | null | undefined): void {
+  if (!doc || attachedDocs.has(doc)) return;
+  attachedDocs.add(doc);
+  doc.addEventListener('focusin', onFocusIn, true);
+  doc.addEventListener('focusout', onFocusOut, true);
+  const win = doc.defaultView;
+  if (win) {
+    win.addEventListener('scroll', positionButton, true);
+    win.addEventListener('resize', positionButton);
+  }
+}
+
+function scanFrames(): void {
+  let iframes: NodeListOf<HTMLIFrameElement>;
+  try {
+    iframes = document.querySelectorAll('iframe');
+  } catch {
+    return;
+  }
+  iframes.forEach((iframe) => {
+    try {
+      const d = iframe.contentDocument; // throws / null for cross-origin
+      if (d) attachDoc(d);
+    } catch {
+      /* cross-origin — skip */
+    }
+    if (!framesWithLoad.has(iframe)) {
+      framesWithLoad.add(iframe);
+      iframe.addEventListener('load', () => {
+        try {
+          const d = iframe.contentDocument;
+          if (d) attachDoc(d);
+        } catch {
+          /* ignore */
+        }
+      });
+    }
+  });
+}
+
 // --- UI state ---
 
 let getEnabled: () => boolean = () => true;
 let currentField: HTMLElement | null = null;
+let currentDoc: Document = document;
 let btn: HTMLButtonElement | null = null;
+let btnDoc: Document | null = null;
 let panel: HTMLElement | null = null;
+let panelDoc: Document | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let curMode: WritingMode = 'correct';
-let onDocDown: ((e: MouseEvent) => void) | null = null;
-let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
-
-export function initWritingAssistant(enabledGetter: () => boolean): void {
-  getEnabled = enabledGetter;
-  injectStyles();
-  document.addEventListener('focusin', onFocusIn, true);
-  document.addEventListener('focusout', onFocusOut, true);
-  window.addEventListener('scroll', positionButton, true);
-  window.addEventListener('resize', positionButton);
-}
+const closeCleanups: Array<() => void> = [];
 
 function onFocusIn(e: FocusEvent): void {
   if (!getEnabled()) return;
   const target = e.target as Element | null;
   if (!isEditableField(target)) return;
   currentField = resolveField(target as HTMLElement);
-  console.debug('[AI Translator] writing: editable field detected', currentField.tagName, currentField.getAttribute('role') || '');
+  currentDoc = currentField.ownerDocument;
+  console.debug('[AI Translator] writing: editable field detected', currentField.tagName, currentDoc === document ? '(top)' : '(iframe)');
   showButton();
 }
 
 function onFocusOut(): void {
-  // Delay so focus can move to our button/panel without it vanishing.
   if (hideTimer) clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
-    const a = document.activeElement;
+    const a = currentDoc.activeElement;
     if (a && (a.id === 'ai-wa-btn' || a.closest?.('#ai-wa-panel'))) return;
     if (!panel) hideButton();
   }, 150);
 }
 
 function showButton(): void {
+  // Rebuild the button in the field's own document if it moved (top ↔ iframe).
+  if (btn && btnDoc !== currentDoc) {
+    btn.remove();
+    btn = null;
+  }
   if (!btn) {
-    btn = document.createElement('button');
+    injectStyles(currentDoc);
+    btn = currentDoc.createElement('button');
     btn.id = 'ai-wa-btn';
     btn.type = 'button';
     btn.title = 'Kiểm tra & cải thiện câu tiếng Anh';
     btn.textContent = '✍️';
     btn.addEventListener('mousedown', (e) => e.preventDefault()); // keep field focus
     btn.addEventListener('click', () => currentField && openPanel(currentField));
-    (document.body || document.documentElement).appendChild(btn);
+    (currentDoc.body || currentDoc.documentElement).appendChild(btn);
+    btnDoc = currentDoc;
   }
   btn.style.display = 'flex';
   positionButton();
@@ -175,13 +234,14 @@ function hideButton(): void {
 
 function positionButton(): void {
   if (!btn || btn.style.display === 'none' || !currentField || !currentField.isConnected) return;
+  const win = winOf(currentField);
   const r = currentField.getBoundingClientRect();
   if (r.width === 0 && r.height === 0) {
     hideButton();
     return;
   }
-  const left = Math.max(8, Math.min(window.innerWidth - 40, r.right - 34));
-  const top = Math.max(8, Math.min(window.innerHeight - 40, r.bottom - 34));
+  const left = Math.max(8, Math.min(win.innerWidth - 40, r.right - 34));
+  const top = Math.max(8, Math.min(win.innerHeight - 40, r.bottom - 34));
   btn.style.left = `${left}px`;
   btn.style.top = `${top}px`;
 }
@@ -189,21 +249,17 @@ function positionButton(): void {
 // --- Panel ---
 
 function closePanel(): void {
-  if (onDocDown) {
-    document.removeEventListener('mousedown', onDocDown, true);
-    onDocDown = null;
-  }
-  if (onKeyDown) {
-    document.removeEventListener('keydown', onKeyDown, true);
-    onKeyDown = null;
-  }
+  while (closeCleanups.length) closeCleanups.pop()!();
   panel?.remove();
   panel = null;
+  panelDoc = null;
 }
 
 function openPanel(field: HTMLElement): void {
   closePanel();
-  panel = document.createElement('div');
+  const doc = field.ownerDocument;
+  injectStyles(doc);
+  panel = doc.createElement('div');
   panel.id = 'ai-wa-panel';
   panel.innerHTML = `
     <div class="ai-wa-head">
@@ -215,7 +271,8 @@ function openPanel(field: HTMLElement): void {
     </div>
     <div class="ai-wa-body"></div>
   `;
-  (document.body || document.documentElement).appendChild(panel);
+  (doc.body || doc.documentElement).appendChild(panel);
+  panelDoc = doc;
   panel.querySelector('.ai-wa-close')?.addEventListener('click', closePanel);
   panel.querySelectorAll('.ai-wa-mode').forEach((b) =>
     b.addEventListener('click', () => {
@@ -228,28 +285,33 @@ function openPanel(field: HTMLElement): void {
   positionPanel(field);
   makeDraggable();
 
-  // Close on click outside (≈ "blur thì tắt") or Esc.
-  onDocDown = (e: MouseEvent) => {
+  // Close on click-outside (≈ "blur thì tắt") or Esc — listen in the panel's document AND
+  // the top document (a click outside an iframe fires in the top document).
+  const docsToWatch = doc === document ? [doc] : [doc, document];
+  const onDown = (e: Event) => {
     const t = e.target as Node;
-    if (panel && !panel.contains(t) && btn && !btn.contains(t)) {
-      closePanel();
-      if (document.activeElement !== field) hideButton();
-    }
+    if (panel && !panel.contains(t) && (!btn || !btn.contains(t))) closePanel();
   };
-  document.addEventListener('mousedown', onDocDown, true);
-  onKeyDown = (e: KeyboardEvent) => {
+  const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') closePanel();
   };
-  document.addEventListener('keydown', onKeyDown, true);
+  for (const d of docsToWatch) {
+    d.addEventListener('mousedown', onDown, true);
+    d.addEventListener('keydown', onKey, true);
+    closeCleanups.push(() => {
+      d.removeEventListener('mousedown', onDown, true);
+      d.removeEventListener('keydown', onKey, true);
+    });
+  }
 
   void runProofread(field);
 }
 
-/** Place the panel next to the field (below if there's room, otherwise above). */
+/** Place the panel next to the field (below, or above if no room). Inside an iframe, anchor
+ *  to the frame's top-left so a short editor iframe doesn't clip it. */
 function positionPanel(field: HTMLElement): void {
   if (!panel) return;
-  if (IN_FRAME) {
-    // Inside an editor iframe: anchor to the frame's top-left so the panel isn't clipped.
+  if (field.ownerDocument !== document) {
     panel.style.left = '8px';
     panel.style.top = '8px';
     panel.style.right = 'auto';
@@ -271,10 +333,10 @@ function positionPanel(field: HTMLElement): void {
   panel.style.bottom = 'auto';
 }
 
-/** Make the panel draggable by its header. */
 function makeDraggable(): void {
   const head = panel?.querySelector('.ai-wa-head') as HTMLElement | null;
-  if (!head || !panel) return;
+  const doc = panelDoc;
+  if (!head || !panel || !doc) return;
   head.style.cursor = 'move';
   head.addEventListener('mousedown', (e) => {
     if ((e.target as HTMLElement).closest('.ai-wa-close') || !panel) return;
@@ -282,21 +344,22 @@ function makeDraggable(): void {
     const rect = panel.getBoundingClientRect();
     const offX = e.clientX - rect.left;
     const offY = e.clientY - rect.top;
+    const view = doc.defaultView || window;
     const move = (ev: MouseEvent) => {
       if (!panel) return;
-      const left = Math.max(0, Math.min(window.innerWidth - rect.width, ev.clientX - offX));
-      const top = Math.max(0, Math.min(window.innerHeight - 36, ev.clientY - offY));
+      const left = Math.max(0, Math.min(view.innerWidth - rect.width, ev.clientX - offX));
+      const top = Math.max(0, Math.min(view.innerHeight - 36, ev.clientY - offY));
       panel.style.left = `${left}px`;
       panel.style.top = `${top}px`;
       panel.style.right = 'auto';
       panel.style.bottom = 'auto';
     };
     const up = () => {
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('mouseup', up);
+      doc.removeEventListener('mousemove', move);
+      doc.removeEventListener('mouseup', up);
     };
-    document.addEventListener('mousemove', move);
-    document.addEventListener('mouseup', up);
+    doc.addEventListener('mousemove', move);
+    doc.addEventListener('mouseup', up);
   });
 }
 
@@ -311,7 +374,7 @@ async function runProofread(field: HTMLElement): Promise<void> {
     setBody(`<div class="ai-wa-note">Hãy viết ít nhất vài chữ tiếng Anh rồi thử lại.</div>`);
     return;
   }
-  setBody(`<div class="ai-wa-loading"><div class="ai-translator-spinner"></div> Đang kiểm tra…</div>`);
+  setBody(`<div class="ai-wa-loading"><span class="ai-wa-spin"></span> Đang kiểm tra…</div>`);
 
   let res: { success?: boolean; data?: ProofreadResult; error?: string } | undefined;
   try {
@@ -370,13 +433,12 @@ function renderResult(field: HTMLElement, data: ProofreadResult): void {
   });
 }
 
-// --- Styles (self-contained; dark, matches the bubble/toast look) ---
+// --- Styles (self-contained; injected into whichever document hosts the UI) ---
 
-let styleInjected = false;
-function injectStyles(): void {
-  if (styleInjected) return;
-  styleInjected = true;
-  const s = document.createElement('style');
+function injectStyles(doc: Document): void {
+  if (styledDocs.has(doc)) return;
+  styledDocs.add(doc);
+  const s = doc.createElement('style');
   s.textContent = `
 #ai-wa-btn{position:fixed;z-index:2147483646;width:30px;height:30px;border:none;border-radius:50%;
   background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:15px;cursor:pointer;
@@ -396,6 +458,9 @@ function injectStyles(): void {
 #ai-wa-panel .ai-wa-mode.on{background:rgba(99,102,241,.28);border-color:rgba(99,102,241,.5);color:#fff;}
 #ai-wa-panel .ai-wa-body{padding:10px 14px 14px;overflow-y:auto;}
 #ai-wa-panel .ai-wa-loading{display:flex;align-items:center;gap:8px;color:#94a3b8;padding:14px 0;}
+#ai-wa-panel .ai-wa-spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.25);border-top-color:#c7d2fe;
+  border-radius:50%;display:inline-block;animation:ai-wa-spin .7s linear infinite;}
+@keyframes ai-wa-spin{to{transform:rotate(360deg);}}
 #ai-wa-panel .ai-wa-note{color:#94a3b8;padding:8px 0;}
 #ai-wa-panel .ai-wa-err{color:#fca5a5;}
 #ai-wa-panel .ai-wa-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
@@ -418,5 +483,5 @@ function injectStyles(): void {
 #ai-wa-panel .ai-wa-fix b{color:#6ee7b7;}
 #ai-wa-panel .ai-wa-why{color:#94a3b8;font-size:12px;margin-top:3px;line-height:1.45;}
 `;
-  (document.head || document.documentElement).appendChild(s);
+  (doc.head || doc.documentElement).appendChild(s);
 }
