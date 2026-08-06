@@ -55,7 +55,8 @@ function initContentScript() {
     reminderIntervalMin: 10,
     vocabAutoImage: true,
   };
-  let reminderStarted = false;
+  let reminderTimer: ReturnType<typeof setInterval> | null = null;
+  let reminderIntervalCur = 0; // minutes the current timer was created with
 
   // Bubble drag-position memory (per-session, viewport coords)
   let bubbleDragState: { left: number; top: number } | null = null;
@@ -65,6 +66,15 @@ function initContentScript() {
 
   // Cloned selection range for in-place selection translation (survives selection collapse).
   let currentSelectionRange: Range | null = null;
+
+  // Cached TTS voices. getVoices() is empty on first call after load until voiceschanged
+  // fires, so prime it once and keep it fresh (otherwise the first 🔊 ignores the chosen voice).
+  let ttsVoices: SpeechSynthesisVoice[] = [];
+  if ('speechSynthesis' in window) {
+    const loadVoices = () => { ttsVoices = window.speechSynthesis.getVoices() || []; };
+    loadVoices();
+    window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+  }
 
   initSidebar();
 
@@ -206,6 +216,16 @@ function initContentScript() {
       // keep defaults
     }
   }
+
+  // Reflect settings changed elsewhere (Options page, other tabs) into this already-open tab,
+  // so e.g. the reminder interval / TTS voice / toggles apply without a reload. Ignore the
+  // high-frequency stats keys (incrementStats writes them on every translation) to avoid churn.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync') return;
+    const STATS_ONLY = new Set(['totalTranslations', 'apiCallsToday', 'lastResetDate']);
+    if (Object.keys(changes).every((k) => STATS_ONLY.has(k))) return;
+    void loadSettings();
+  });
 
   async function persistSettings(updates: Partial<CachedSettings>) {
     cachedSettings = { ...cachedSettings, ...updates };
@@ -865,7 +885,8 @@ function initContentScript() {
     const isVi = lang === 'auto' ? VI_RE.test(text) : lang.toLowerCase().startsWith('vi');
     const utter = new SpeechSynthesisUtterance(text);
     const uri = isVi ? cachedSettings.ttsVoiceVi : cachedSettings.ttsVoiceEn;
-    const voice = uri ? window.speechSynthesis.getVoices().find((v) => v.voiceURI === uri) : undefined;
+    const voices = ttsVoices.length ? ttsVoices : window.speechSynthesis.getVoices();
+    const voice = uri ? voices.find((v) => v.voiceURI === uri) : undefined;
     if (voice) utter.voice = voice;
     else utter.lang = isVi ? 'vi-VN' : 'en-US';
     utter.rate = cachedSettings.ttsRate || 0.95;
@@ -875,10 +896,17 @@ function initContentScript() {
   // --- Study reminder (in-tab toast) ---
 
   function startReminderTimer() {
-    if (reminderStarted) return;
-    reminderStarted = true;
+    if (!cachedSettings.reminderEnabled) {
+      if (reminderTimer) { clearInterval(reminderTimer); reminderTimer = null; reminderIntervalCur = 0; }
+      return;
+    }
     const min = Math.max(1, cachedSettings.reminderIntervalMin || 10);
-    setInterval(async () => {
+    // Already running at this interval → leave it (don't reset the countdown on unrelated
+    // settings changes). Only (re)create when the interval actually changed.
+    if (reminderTimer && min === reminderIntervalCur) return;
+    if (reminderTimer) clearInterval(reminderTimer);
+    reminderIntervalCur = min;
+    reminderTimer = setInterval(async () => {
       // Only nudge on the tab the user is actively viewing.
       if (document.visibilityState !== 'visible') return;
       if (document.getElementById('ai-translator-reminder')) return; // one at a time
@@ -910,7 +938,7 @@ function initContentScript() {
       ? `<div style="color:#94a3b8;font-size:12px;font-style:italic;margin-top:6px;">"${escapeHtml(card.example)}"</div>`
       : '';
     const img = card.image
-      ? `<img src="${card.image}" alt="" style="max-width:100%;max-height:110px;border-radius:8px;margin-top:8px;display:block;">`
+      ? `<img src="${escapeHtml(card.image)}" alt="" style="max-width:100%;max-height:110px;border-radius:8px;margin-top:8px;display:block;">`
       : '';
     el.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -1418,6 +1446,21 @@ function initContentScript() {
   }
 
   async function activateZenMode() {
+    if (document.getElementById('ai-translator-zen-overlay')) return; // don't stack overlays
+
+    // Capture & clean the content root BEFORE injecting our overlay, so we never feed our
+    // own UI (overlay / sidebar / toggle / bubble / injected translations) to the model —
+    // important when the root falls back to <body>.
+    const contentElement = document.querySelector('article') || document.querySelector('main') || document.body;
+    const clone = contentElement.cloneNode(true) as HTMLElement;
+    const noisySelectors = [
+      'nav', 'header', 'footer', 'script', 'style', 'noscript', 'iframe', 'svg', 'aside',
+      '[id^="ai-translator"]', '.ai-tr-bilingual',
+    ];
+    noisySelectors.forEach((sel) => clone.querySelectorAll(sel).forEach((el) => el.remove()));
+
+    const textToTranslate = clone.innerText.trim().substring(0, 15000);
+
     const overlay = document.createElement('div');
     overlay.id = 'ai-translator-zen-overlay';
     overlay.innerHTML = `
@@ -1434,13 +1477,6 @@ function initContentScript() {
     `;
     document.body.appendChild(overlay);
     overlay.querySelector('.zen-close')?.addEventListener('click', () => overlay.remove());
-
-    const contentElement = document.querySelector('article') || document.querySelector('main') || document.body;
-    const clone = contentElement.cloneNode(true) as HTMLElement;
-    const noisySelectors = ['nav', 'header', 'footer', 'script', 'style', 'noscript', 'iframe', 'svg', 'aside'];
-    noisySelectors.forEach((sel) => clone.querySelectorAll(sel).forEach((el) => el.remove()));
-
-    const textToTranslate = clone.innerText.trim().substring(0, 15000);
     const isVietnamese = /[àáãạảăắằẳẵặâấầẩẫậèéẹẻẽêềếểễệđìíĩỉịòóõọỏôốồổỗộơớờởỡợùúũụủưứừửữựỳýỵỷỹ]/i.test(textToTranslate);
     const targetLang = isVietnamese ? 'en' : 'vi';
 

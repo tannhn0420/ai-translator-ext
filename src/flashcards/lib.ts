@@ -57,13 +57,17 @@ export function toCSV(deck: VocabCard[]): string {
 }
 
 export function toTSV(deck: VocabCard[]): string {
+  // Anki treats tabs as field separators and newlines as record separators, so strip BOTH
+  // from term and back — the example field is a textarea and legitimately contains newlines.
+  const flat = (s: string) => s.replace(/[\t\r\n]+/g, ' ');
   return deck
     .map((c) => {
-      const back = [c.meaning, c.ipa ? `/${c.ipa.replace(/^\/|\/$/g, '')}/` : '', c.example]
-        .filter(Boolean)
-        .join('  ·  ')
-        .replace(/\t/g, ' ');
-      return `${c.term.replace(/\t/g, ' ')}\t${back}`;
+      const back = flat(
+        [c.meaning, c.ipa ? `/${c.ipa.replace(/^\/|\/$/g, '')}/` : '', c.example]
+          .filter(Boolean)
+          .join('  ·  '),
+      );
+      return `${flat(c.term)}\t${back}`;
     })
     .join('\n');
 }

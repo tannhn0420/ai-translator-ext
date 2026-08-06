@@ -90,13 +90,17 @@ function App() {
     }
   }, [inputText]);
 
-  // Save output text when changed
+  // Save output text when changed — debounced so streaming (one update per delta) doesn't
+  // fire hundreds of storage.local writes; persist ~400ms after the last change.
   useEffect(() => {
-    try {
-      chrome.storage.local.set({ popupOutputText: outputText });
-    } catch {
-      // Ignore
-    }
+    const id = setTimeout(() => {
+      try {
+        chrome.storage.local.set({ popupOutputText: outputText });
+      } catch {
+        // Ignore
+      }
+    }, 400);
+    return () => clearTimeout(id);
   }, [outputText]);
 
   const loadSettings = async () => {
@@ -222,10 +226,14 @@ function App() {
   };
 
   const openZenMode = async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab.id) {
-      chrome.tabs.sendMessage(tab.id, { type: 'TRIGGER_ZEN_MODE' });
-      window.close(); // close popup
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+      // Rejects on restricted pages (chrome://, Web Store, PDF viewer) with no content script.
+      await chrome.tabs.sendMessage(tab.id, { type: 'TRIGGER_ZEN_MODE' });
+      window.close(); // close popup only after the content script accepted the trigger
+    } catch {
+      setError('Không mở được chế độ đọc trên trang này.');
     }
   };
 
