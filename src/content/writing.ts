@@ -54,13 +54,22 @@ function isEditableField(el: Element | null): el is HTMLElement {
     return ['text', 'search', 'email', 'url', ''].includes(t) && !inp.readOnly && !inp.disabled;
   }
   if (el.isContentEditable) return true;
+  // Rich editors (ProseMirror/Jira, Slate, Draft.js…) expose role="textbox"; the focused
+  // node may be a wrapper, so accept it if it or an ancestor is an editable host.
+  if (el.closest(EDITOR_HOST_SELECTOR)) return true;
   return false;
 }
 
-/** For a contenteditable target, resolve the editing host; otherwise the element itself. */
+/** Selector for editable "hosts" of rich editors. */
+const EDITOR_HOST_SELECTOR = '[contenteditable="true"],[contenteditable=""],[role="textbox"]';
+
+/** Resolve the editing host of a rich editor (or the field element itself). */
 function resolveField(el: HTMLElement): HTMLElement {
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return el;
-  return (el.closest('[contenteditable="true"],[contenteditable=""]') as HTMLElement) || el;
+  if (el.isContentEditable) {
+    return (el.closest('[contenteditable="true"],[contenteditable=""]') as HTMLElement) || el;
+  }
+  return (el.closest(EDITOR_HOST_SELECTOR) as HTMLElement) || el;
 }
 
 function readText(el: HTMLElement): string {
@@ -103,6 +112,8 @@ let btn: HTMLButtonElement | null = null;
 let panel: HTMLElement | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let curMode: WritingMode = 'correct';
+let onDocDown: ((e: MouseEvent) => void) | null = null;
+let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
 
 export function initWritingAssistant(enabledGetter: () => boolean): void {
   getEnabled = enabledGetter;
@@ -118,6 +129,7 @@ function onFocusIn(e: FocusEvent): void {
   const target = e.target as Element | null;
   if (!isEditableField(target)) return;
   currentField = resolveField(target as HTMLElement);
+  console.debug('[AI Translator] writing: editable field detected', currentField.tagName, currentField.getAttribute('role') || '');
   showButton();
 }
 
@@ -166,6 +178,14 @@ function positionButton(): void {
 // --- Panel ---
 
 function closePanel(): void {
+  if (onDocDown) {
+    document.removeEventListener('mousedown', onDocDown, true);
+    onDocDown = null;
+  }
+  if (onKeyDown) {
+    document.removeEventListener('keydown', onKeyDown, true);
+    onKeyDown = null;
+  }
   panel?.remove();
   panel = null;
 }
@@ -193,7 +213,72 @@ function openPanel(field: HTMLElement): void {
       void runProofread(field);
     }),
   );
+
+  positionPanel(field);
+  makeDraggable();
+
+  // Close on click outside (≈ "blur thì tắt") or Esc.
+  onDocDown = (e: MouseEvent) => {
+    const t = e.target as Node;
+    if (panel && !panel.contains(t) && btn && !btn.contains(t)) {
+      closePanel();
+      if (document.activeElement !== field) hideButton();
+    }
+  };
+  document.addEventListener('mousedown', onDocDown, true);
+  onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') closePanel();
+  };
+  document.addEventListener('keydown', onKeyDown, true);
+
   void runProofread(field);
+}
+
+/** Place the panel next to the field (below if there's room, otherwise above). */
+function positionPanel(field: HTMLElement): void {
+  if (!panel) return;
+  const r = field.getBoundingClientRect();
+  const pw = 360;
+  const ph = Math.min(panel.offsetHeight || 340, Math.round(window.innerHeight * 0.7));
+  const left = Math.max(8, Math.min(window.innerWidth - pw - 8, r.left));
+  let top = r.bottom + 8;
+  if (top + ph > window.innerHeight - 8) {
+    const above = r.top - ph - 8;
+    top = above >= 8 ? above : Math.max(8, window.innerHeight - ph - 8);
+  }
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+  panel.style.right = 'auto';
+  panel.style.bottom = 'auto';
+}
+
+/** Make the panel draggable by its header. */
+function makeDraggable(): void {
+  const head = panel?.querySelector('.ai-wa-head') as HTMLElement | null;
+  if (!head || !panel) return;
+  head.style.cursor = 'move';
+  head.addEventListener('mousedown', (e) => {
+    if ((e.target as HTMLElement).closest('.ai-wa-close') || !panel) return;
+    e.preventDefault();
+    const rect = panel.getBoundingClientRect();
+    const offX = e.clientX - rect.left;
+    const offY = e.clientY - rect.top;
+    const move = (ev: MouseEvent) => {
+      if (!panel) return;
+      const left = Math.max(0, Math.min(window.innerWidth - rect.width, ev.clientX - offX));
+      const top = Math.max(0, Math.min(window.innerHeight - 36, ev.clientY - offY));
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
 }
 
 function setBody(html: string): void {
