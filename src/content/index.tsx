@@ -6,6 +6,7 @@
 import type { TranslateResponse, PageTranslateMode, Language, VocabCard } from '../types';
 import { handleTranslatePage } from './pageTranslate/controller';
 import { translateSelection } from './pageTranslate/selection';
+import { initWritingAssistant } from './writing';
 import { reviewCard } from '../utils/srs';
 
 // Avoid re-injection
@@ -26,6 +27,7 @@ interface CachedSettings {
   reminderEnabled: boolean;
   reminderIntervalMin: number;
   vocabAutoImage: boolean;
+  writingAssistantEnabled: boolean;
 }
 
 const CONTEXT_CHARS_AROUND = 250;
@@ -54,6 +56,7 @@ function initContentScript() {
     reminderEnabled: true,
     reminderIntervalMin: 10,
     vocabAutoImage: true,
+    writingAssistantEnabled: true,
   };
   let reminderTimer: ReturnType<typeof setInterval> | null = null;
   let reminderIntervalCur = 0; // minutes the current timer was created with
@@ -157,6 +160,7 @@ function initContentScript() {
   // Load settings on startup
   loadSettings();
   maybeAutoTranslatePage();
+  initWritingAssistant(() => cachedSettings.writingAssistantEnabled);
 
   /**
    * Auto-translate the whole page on load if the current host is in the user's
@@ -208,6 +212,7 @@ function initContentScript() {
           reminderEnabled: response.data.reminderEnabled !== false,
           reminderIntervalMin: response.data.reminderIntervalMin || 10,
           vocabAutoImage: response.data.vocabAutoImage !== false,
+          writingAssistantEnabled: response.data.writingAssistantEnabled !== false,
         };
         applySidebarSettings();
         startReminderTimer();

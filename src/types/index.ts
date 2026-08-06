@@ -41,6 +41,7 @@ export type MessageType =
   | 'CLEAR_HISTORY'
   | 'ANALYZE_IELTS'
   | 'EXPLAIN_GRAMMAR'
+  | 'PROOFREAD'
   | 'TRANSLATE_INPLACE'
   | 'TRANSLATE_SELECTION_INLINE'
   | 'TOGGLE_PIN_HISTORY'
@@ -174,6 +175,9 @@ export interface AppSettings {
   // Vocabulary
   vocabAutoImage: boolean; // auto-attach an illustration when saving a word
 
+  // Writing assistant
+  writingAssistantEnabled: boolean; // show the ✍️ proofread button on editable fields
+
   // UI state
   sidebarToggleY: number; // px from top, persisted icon position
   sidebarWidth: number;   // px
@@ -282,6 +286,25 @@ export interface SpeakingAssessment {
   strengths: string[];
   improvements: string[];
   better: string;
+}
+
+// ============================================
+// Writing assistant (Grammarly-style proofread)
+// ============================================
+
+export type WritingMode = 'correct' | 'natural' | 'formal' | 'concise' | 'ielts';
+
+export interface WritingIssue {
+  original: string; // the problematic span from the source text
+  suggestion: string; // the fix
+  why: string; // short Vietnamese explanation
+  type: 'grammar' | 'spelling' | 'word-choice' | 'style' | 'punctuation';
+}
+
+export interface ProofreadResult {
+  corrected: string; // the improved full text
+  issues: WritingIssue[];
+  level?: string; // CEFR estimate of the ORIGINAL text (A1..C2)
 }
 
 // Gemini API types

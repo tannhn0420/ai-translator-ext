@@ -46,6 +46,7 @@ function OptionsApp() {
   const [reminderEnabled, setReminderEnabled] = useState(true);
   const [reminderIntervalMin, setReminderIntervalMin] = useState(10);
   const [vocabAutoImage, setVocabAutoImage] = useState(true);
+  const [writingAssistantEnabled, setWritingAssistantEnabled] = useState(true);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -93,6 +94,7 @@ function OptionsApp() {
         setReminderEnabled(s.reminderEnabled !== false);
         setReminderIntervalMin(s.reminderIntervalMin || 10);
         setVocabAutoImage(s.vocabAutoImage !== false);
+        setWritingAssistantEnabled(s.writingAssistantEnabled !== false);
       }
     } catch {
       console.log('Running outside extension context');
@@ -753,6 +755,25 @@ function OptionsApp() {
                 onTouchEnd={() => saveField({ ttsRate })}
               />
               <p className="form-help">Kéo để chỉnh; thả ra để lưu.</p>
+            </div>
+
+            <h3 className="subsection-title">✍️ Trợ lý viết</h3>
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <span className="toggle-label">✍️ Trợ lý viết tiếng Anh</span>
+                <span className="toggle-desc">Hiện nút ✍️ ở ô soạn thảo để kiểm tra &amp; cải thiện câu (chỉ gọi AI khi bạn bấm)</span>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={writingAssistantEnabled}
+                  onChange={(e) => {
+                    setWritingAssistantEnabled(e.target.checked);
+                    saveField({ writingAssistantEnabled: e.target.checked });
+                  }}
+                />
+                <span className="toggle-slider"></span>
+              </label>
             </div>
 
             <h3 className="subsection-title">📚 Học từ vựng</h3>

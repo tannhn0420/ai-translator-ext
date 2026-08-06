@@ -156,6 +156,46 @@ Câu cần giải thích:
 {text}`;
 
 // ============================================
+// Writing assistant (Grammarly-style proofread for a Vietnamese learner)
+// ============================================
+
+export const WRITING_SYSTEM_PROMPT = `You are a meticulous, encouraging English writing coach for a Vietnamese learner. You proofread and improve English text. You are precise: you never invent errors, you preserve the author's intended meaning, and every explanation you give is in clear, simple Vietnamese. You always answer with STRICT JSON only.`;
+
+// Per-mode instruction spliced into the template.
+export const WRITING_MODE_INSTRUCTION: Record<string, string> = {
+  correct:
+    "Fix ONLY real grammar, spelling, punctuation and word-choice errors. Preserve the author's meaning and voice; do not restyle correct sentences.",
+  natural:
+    'Make it sound natural and fluent like a native speaker: fix errors and awkward/unidiomatic phrasing while keeping the original meaning.',
+  formal:
+    'Rewrite in a polished, professional register: fix errors, remove slang/contractions, keep the meaning.',
+  concise:
+    'Make it clearer and more concise: fix errors, cut redundancy and filler, keep the meaning.',
+  ielts:
+    'Rewrite to IELTS Band 8.0+ quality: precise less-common vocabulary, a mix of complex structures, natural cohesion, near-zero errors — keep the meaning and length within ±20%.',
+};
+
+export const WRITING_TEMPLATE = `Task: {mode_instruction}
+
+Return ONLY JSON (no code fences, no commentary), with this exact shape:
+{
+  "corrected": "<the improved full text>",
+  "issues": [
+    {"original":"<exact problematic span copied from the ORIGINAL text>","suggestion":"<the corrected span>","why":"<giải thích NGẮN GỌN bằng TIẾNG VIỆT vì sao sửa>","type":"grammar|spelling|word-choice|style|punctuation"}
+  ],
+  "level": "<CEFR level of the ORIGINAL text: one of A1,A2,B1,B2,C1,C2>"
+}
+
+Rules:
+- List the most important changes only (max 8 issues), each with a Vietnamese "why".
+- If the text is already correct, return "corrected" equal to the input and "issues": [].
+- "corrected" must be plain text (no markdown), preserving line breaks.
+- Keep the author's intended meaning; do not add new information.
+
+Text:
+{text}`;
+
+// ============================================
 // Full-page batch translation
 // ============================================
 

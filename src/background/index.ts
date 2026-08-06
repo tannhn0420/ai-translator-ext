@@ -44,6 +44,9 @@ import {
   IELTS_TRANSLATION_TEMPLATE,
   GRAMMAR_SYSTEM_PROMPT,
   GRAMMAR_TEMPLATE,
+  WRITING_SYSTEM_PROMPT,
+  WRITING_TEMPLATE,
+  WRITING_MODE_INSTRUCTION,
   INPLACE_TRANSLATION_TEMPLATE,
   CONTEXT_TRANSLATION_TEMPLATE,
   DICTIONARY_TEMPLATE,
@@ -217,6 +220,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
 
     case 'EXPLAIN_GRAMMAR':
       return await handleExplainGrammar(message as any);
+
+    case 'PROOFREAD':
+      return await handleProofread(message as any);
 
     case 'TRANSLATE_INPLACE':
       return await handleInplaceTranslate(message as any);
@@ -528,6 +534,68 @@ async function handleExplainGrammar(request: any): Promise<any> {
     console.error('Grammar explain error:', error);
     return { success: false, error: error.message || 'Giải thích thất bại.' };
   }
+}
+
+const PROOFREAD_MAX_CHARS = 6000;
+const VALID_ISSUE_TYPES = new Set(['grammar', 'spelling', 'word-choice', 'style', 'punctuation']);
+
+/** Proofread/improve English text (writing assistant). Returns corrected text + issues (VN why) + CEFR level. */
+async function handleProofread(request: any): Promise<any> {
+  const settings = await getSettings();
+  const text: string = (request.payload?.text || '').toString();
+  const mode: string = request.payload?.mode || 'correct';
+  if (!text.trim()) return { success: false, error: 'Không có nội dung để kiểm tra.' };
+  if (text.length > PROOFREAD_MAX_CHARS) {
+    return { success: false, error: `Đoạn quá dài (tối đa ${PROOFREAD_MAX_CHARS} ký tự).` };
+  }
+
+  const providers = buildProviderList(settings);
+  if (!providers.some((p) => p.key)) {
+    return { success: false, error: 'Chưa cấu hình API Key hoặc Provider không hợp lệ.' };
+  }
+
+  const instruction = WRITING_MODE_INSTRUCTION[mode] || WRITING_MODE_INSTRUCTION.correct;
+  const template = WRITING_TEMPLATE.replace('{mode_instruction}', () => instruction);
+
+  let raw = '';
+  let lastError: Error | null = null;
+  for (const p of providers) {
+    if (!p.key) continue;
+    try {
+      await pace();
+      raw = await callProvider(p, text, 'auto', 'en', WRITING_SYSTEM_PROMPT, template, PAGE_BATCH_MAX_OUTPUT_TOKENS);
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err as Error;
+    }
+  }
+  if (!raw) return { success: false, error: lastError?.message || 'Không kiểm tra được.' };
+
+  const parsed = extractJson(raw) as Record<string, unknown> | null;
+  if (!parsed || typeof parsed !== 'object') {
+    return { success: false, error: 'Kết quả AI không hợp lệ, thử lại nhé.' };
+  }
+
+  const corrected = typeof parsed.corrected === 'string' && parsed.corrected.trim() ? parsed.corrected : text;
+  const rawIssues = Array.isArray(parsed.issues) ? parsed.issues : [];
+  const issues = rawIssues
+    .map((x) => {
+      const o = (x || {}) as Record<string, unknown>;
+      const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+      const type = str(o.type);
+      return {
+        original: str(o.original),
+        suggestion: str(o.suggestion),
+        why: str(o.why),
+        type: VALID_ISSUE_TYPES.has(type) ? type : 'grammar',
+      };
+    })
+    .filter((i) => i.original || i.suggestion)
+    .slice(0, 8);
+  const level = typeof parsed.level === 'string' ? parsed.level.trim().toUpperCase() : '';
+
+  return { success: true, data: { corrected, issues, level } };
 }
 
 async function handleInplaceTranslate(request: any): Promise<any> {
