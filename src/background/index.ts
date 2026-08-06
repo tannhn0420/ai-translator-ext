@@ -385,11 +385,15 @@ async function handleTranslate(request: TranslateRequest): Promise<TranslateResp
 
   const { template, mode } = selectTemplate(settings, text, context, dictionaryMode);
 
+  const providers = buildProviderList(settings);
+  // Key the cache on the primary (first configured-with-key) provider's model so reads
+  // and writes always agree — even when a fallback provider ends up answering the call.
+  const cacheModel = providers.find((p) => p.key)?.model || 'unknown';
+  const cacheKey = makeCacheKey(text, targetLang, cacheModel, mode);
+
   try {
     // Check cache first
     if (settings.cacheEnabled) {
-      const activeProvider = buildProviderList(settings)[0];
-      const cacheKey = makeCacheKey(text, targetLang, activeProvider?.model || 'unknown', mode);
       const cached = await getCachedTranslation(cacheKey);
       if (cached) {
         return { success: true, data: { translatedText: cached } };
@@ -398,7 +402,6 @@ async function handleTranslate(request: TranslateRequest): Promise<TranslateResp
 
     let translatedText = '';
     let usedProviderId: string | null = null;
-    const providers = buildProviderList(settings);
     let lastError: Error | null = null;
 
     for (const p of providers) {
@@ -430,10 +433,8 @@ async function handleTranslate(request: TranslateRequest): Promise<TranslateResp
       throw new Error('Chưa cấu hình API Key hoặc Provider không hợp lệ. Vui lòng kiểm tra lại Cài đặt.');
     }
 
-    // Cache successful translation
+    // Cache successful translation (same key used for the lookup above).
     if (settings.cacheEnabled && usedProviderId) {
-      const usedProvider = providers.find((p) => p.id === usedProviderId);
-      const cacheKey = makeCacheKey(text, targetLang, usedProvider?.model || 'unknown', mode);
       await setCachedTranslation(cacheKey, translatedText);
     }
 
@@ -700,7 +701,9 @@ async function handleTranslateBatch(request: BatchTranslateRequest): Promise<Bat
   }
 
   const result: Record<number, string> = {};
-  const activeModel = providers[0]?.model || 'unknown';
+  // Key every item on the primary (first configured-with-key) model, for both lookup and
+  // write, so a fallback provider answering doesn't scatter entries under an unread key.
+  const activeModel = providers.find((p) => p.key)?.model || 'unknown';
 
   // 1. Per-item cache lookup — only send cache misses to the API.
   const uncached: BatchTranslateItem[] = [];
@@ -715,13 +718,13 @@ async function handleTranslateBatch(request: BatchTranslateRequest): Promise<Bat
   }
   if (uncached.length === 0) return { success: true, data: result };
 
-  const commit = async (subset: BatchTranslateItem[], map: Record<number, string>, model: string) => {
+  const commit = async (subset: BatchTranslateItem[], map: Record<number, string>) => {
     for (const it of subset) {
       const v = map[it.i];
       if (typeof v === 'string' && v.length) {
         result[it.i] = v;
         if (settings.cacheEnabled) {
-          await setCachedTranslation(makeCacheKey(it.text, targetLang, model, 'page'), v);
+          await setCachedTranslation(makeCacheKey(it.text, targetLang, activeModel, 'page'), v);
         }
       }
     }
@@ -729,7 +732,7 @@ async function handleTranslateBatch(request: BatchTranslateRequest): Promise<Bat
 
   // 2. First pass over the whole (uncached) batch.
   const first = await translateBatchItems(uncached, targetLang, settings.systemPrompt, providers);
-  await commit(uncached, first.map, first.model);
+  await commit(uncached, first.map);
 
   // 3. Recover items the model dropped/truncated by retrying them in smaller halves.
   const pending = uncached.filter((it) => result[it.i] === undefined);
@@ -739,7 +742,7 @@ async function handleTranslateBatch(request: BatchTranslateRequest): Promise<Bat
     for (const sub of subs) {
       if (sub.length === 0) continue;
       const retry = await translateBatchItems(sub, targetLang, settings.systemPrompt, providers);
-      await commit(sub, retry.map, retry.model);
+      await commit(sub, retry.map);
     }
   }
 

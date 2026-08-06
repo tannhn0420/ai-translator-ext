@@ -1058,6 +1058,9 @@ function PracticeLine({
   const [dictScore, setDictScore] = useState<SpeechScore | null>(null);
   const stopRef = useRef<() => void>(() => {});
 
+  // Stop a live mic if this line unmounts (e.g. switching pack tabs mid-listen).
+  useEffect(() => () => stopRef.current(), []);
+
   async function startSpeak() {
     if (recognizing) {
       stopRef.current();
@@ -1162,11 +1165,13 @@ function RolePlay({
   const [scores, setScores] = useState<number[]>([]);
 
   const mounted = useRef(true);
+  const recRef = useRef<RecognitionHandle | null>(null);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
       window.speechSynthesis?.cancel();
+      recRef.current?.stop();
     };
   }, []);
 
@@ -1194,7 +1199,8 @@ function RolePlay({
     if (recognizing || !line) return;
     setRecognizing(true);
     setTranscript('');
-    const { promise } = recognizeOnce('en-US', setTranscript);
+    const { promise, handle } = recognizeOnce('en-US', setTranscript);
+    recRef.current = handle;
     try {
       const said = await promise;
       if (!mounted.current) return;
@@ -1344,12 +1350,16 @@ const DRILL_SOUNDS: { key: string; label: string }[] = [
 function WordSpeak({ word, speak, onScore }: { word: string; speak: (t: string, l?: Language) => void; onScore: (sc: SpeechScore) => void }) {
   const [recognizing, setRecognizing] = useState(false);
   const [score, setScore] = useState<number | null>(null);
+  const recRef = useRef<RecognitionHandle | null>(null);
+
+  useEffect(() => () => recRef.current?.stop(), []);
 
   async function go() {
     if (recognizing) return;
     setRecognizing(true);
     setScore(null);
-    const { promise } = recognizeOnce('en-US', () => {});
+    const { promise, handle } = recognizeOnce('en-US', () => {});
+    recRef.current = handle;
     try {
       const said = await promise;
       const sc = scoreSpeech(word, said);
