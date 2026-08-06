@@ -40,6 +40,10 @@ const MUTATION_DEBOUNCE_MS = 300;
 let active = false; // page-translate mode engaged
 let showing = false; // translations currently displayed (vs reverted)
 let stopped = false; // translation halted by the user (no more auto-queueing)
+// Bumped on every activate/pause/deactivate/stop. In-flight batches capture the value at
+// start and skip applying if it changed — so a network response that lands AFTER the user
+// reverts / re-triggers in a new mode can't mutate the page for a superseded run.
+let runId = 0;
 let displayMode: PageTranslateMode = 'replace';
 let currentLang: Language = 'vi';
 
@@ -92,6 +96,7 @@ function activate(mode: PageTranslateMode, targetLang: Language): void {
   active = true;
   showing = true;
   stopped = false;
+  runId++;
   displayMode = mode;
   currentLang = targetLang;
   candidates = blocks;
@@ -105,6 +110,8 @@ function activate(mode: PageTranslateMode, targetLang: Language): void {
 
 /** Revert to original but keep the snapshot + candidate list for an instant resume. */
 function pause(): void {
+  stopped = true;
+  runId++; // invalidate any in-flight batch so it can't re-apply after we revert
   stopObservers();
   for (const [el, t] of tracked) revertBlock(el, t);
   showing = false;
@@ -122,6 +129,8 @@ function resume(): void {
 
 /** Fully tear down (used before a fresh translation in a different mode/target). */
 function deactivate(): void {
+  stopped = true;
+  runId++; // supersede any in-flight batch from the previous run
   stopObservers();
   for (const [el, t] of tracked) revertBlock(el, t);
   tracked.clear();
@@ -135,6 +144,7 @@ function deactivate(): void {
 /** User pressed "Dừng": stop translating further, keep what's already applied. */
 function stopTranslation(): void {
   stopped = true;
+  runId++;
   stopObservers();
   setStatus(`⏹️ Đã dừng — đã dịch ${translatedCount} đoạn`, false);
 }
@@ -155,6 +165,10 @@ function stopObservers(): void {
   mutationObserver = null;
   queue = [];
   pendingRoots.clear();
+  // Clear the flush latch so the NEXT run isn't blocked by a superseded flush that was
+  // mid-await when we tore down. The old flush is already runId-guarded from applying.
+  flushing = false;
+  pendingReflush = false;
   if (flushTimer) {
     clearTimeout(flushTimer);
     flushTimer = null;
@@ -193,9 +207,10 @@ async function flushQueue(): Promise<void> {
     return;
   }
   flushing = true;
+  const myRun = runId;
 
   try {
-    while (queue.length > 0 && !stopped) {
+    while (queue.length > 0 && !stopped && runId === myRun) {
       const take = queue.splice(0, queue.length);
       const entries: { el: HTMLElement; map: Node[] }[] = [];
       const items: BatchTranslateItem[] = [];
@@ -215,7 +230,7 @@ async function flushQueue(): Promise<void> {
 
       const batches = chunkItems(items);
       await runPool(batches, PAGE_TRANSLATE_CONCURRENCY, async (batch) => {
-        if (stopped) return;
+        if (stopped || runId !== myRun) return;
         let data: Record<number, string> = {};
         try {
           const resp: BatchTranslateResponse = await chrome.runtime.sendMessage({
@@ -226,6 +241,8 @@ async function flushQueue(): Promise<void> {
         } catch {
           // Extension context lost / provider error — leave these blocks as original.
         }
+        // Re-check AFTER the await: the user may have reverted / re-triggered meanwhile.
+        if (stopped || runId !== myRun) return;
         for (const it of batch) {
           const translated = data[it.i];
           const entry = entries[it.i];
@@ -238,15 +255,18 @@ async function flushQueue(): Promise<void> {
     }
   } finally {
     flushing = false;
-    if (pendingReflush && !stopped) {
-      pendingReflush = false;
-      scheduleFlush();
-    } else if (!stopped) {
-      if (processedAny && translatedCount === 0 && !errorShown) {
-        errorShown = true;
-        setStatus('⚠️ Chưa dịch được đoạn nào — kiểm tra API key / hạn mức.', false);
-      } else {
-        setStatus(`🌐 Đã dịch ${translatedCount} đoạn`, false);
+    // Only the current generation may reschedule or touch the status pill.
+    if (runId === myRun) {
+      if (pendingReflush && !stopped) {
+        pendingReflush = false;
+        scheduleFlush();
+      } else if (!stopped) {
+        if (processedAny && translatedCount === 0 && !errorShown) {
+          errorShown = true;
+          setStatus('⚠️ Chưa dịch được đoạn nào — kiểm tra API key / hạn mức.', false);
+        } else {
+          setStatus(`🌐 Đã dịch ${translatedCount} đoạn`, false);
+        }
       }
     }
   }
@@ -284,6 +304,14 @@ function processMutations(): void {
   for (const [el] of tracked) {
     if (!el.isConnected) tracked.delete(el);
   }
+
+  // Prune detached candidates and stop observing them, else `candidates` and the
+  // IntersectionObserver's target set grow unbounded on infinite-scroll / SPA churn.
+  candidates = candidates.filter((el) => {
+    if (el.isConnected) return true;
+    observer!.unobserve(el);
+    return false;
+  });
 
   const roots = Array.from(pendingRoots);
   pendingRoots.clear();
