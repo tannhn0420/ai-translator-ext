@@ -79,10 +79,22 @@ function initContentScript() {
     window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
   }
 
-  initSidebar();
+  // With all_frames enabled, this script also runs inside sub-frames (e.g. Jira's TinyMCE
+  // editor iframe). Only the writing assistant should run everywhere; all the page-level
+  // features stay in the TOP frame so we don't duplicate the sidebar / reminder / page-
+  // translate / selection bubble across every embedded iframe.
+  const IS_TOP = (() => {
+    try {
+      return window.top === window.self;
+    } catch {
+      return false; // cross-origin access threw → we're in a sub-frame
+    }
+  })();
+
+  if (IS_TOP) initSidebar();
 
   // Listen for text selection
-  document.addEventListener('mouseup', (e) => {
+  if (IS_TOP) document.addEventListener('mouseup', (e) => {
     if (bubble && bubble.contains(e.target as Node)) return;
     if (iconNode && iconNode.contains(e.target as Node)) return;
     const sidebar = document.getElementById('ai-translator-sidebar');
@@ -97,7 +109,7 @@ function initContentScript() {
   });
 
   // Click outside to dismiss icon (but not bubble — bubble has explicit close)
-  document.addEventListener('mousedown', (e) => {
+  if (IS_TOP) document.addEventListener('mousedown', (e) => {
     if (iconNode && !iconNode.contains(e.target as Node)) {
       removeIcon();
     }
@@ -105,7 +117,7 @@ function initContentScript() {
 
   // Double Shift in-place translation
   let lastShiftTime = 0;
-  document.addEventListener('keyup', (e) => {
+  if (IS_TOP) document.addEventListener('keyup', (e) => {
     if (e.key === 'Shift') {
       const now = Date.now();
       if (now - lastShiftTime < 500) {
@@ -118,7 +130,7 @@ function initContentScript() {
   });
 
   // Keyboard shortcut: Ctrl+Shift+H (Cmd+Shift+H on Mac) toggles sidebar
-  document.addEventListener('keydown', (e) => {
+  if (IS_TOP) document.addEventListener('keydown', (e) => {
     const isMac = navigator.platform.toLowerCase().includes('mac');
     const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
     if (cmdOrCtrl && e.shiftKey && (e.key === 'H' || e.key === 'h')) {
@@ -132,8 +144,9 @@ function initContentScript() {
     }
   });
 
-  // Listen for messages from background
-  chrome.runtime.onMessage.addListener((message) => {
+  // Listen for messages from background (top frame only — tabs.sendMessage broadcasts to
+  // all frames, and page-translate / zen / selection must run once, in the main document).
+  if (IS_TOP) chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'TRANSLATE_SELECTION' && message.payload?.text) {
       const selection = window.getSelection();
       if (selection && selection.rangeCount > 0) {
@@ -157,9 +170,9 @@ function initContentScript() {
     }
   });
 
-  // Load settings on startup
+  // Load settings on startup (in every frame — the writing assistant needs them too).
   loadSettings();
-  maybeAutoTranslatePage();
+  if (IS_TOP) maybeAutoTranslatePage();
   initWritingAssistant(() => cachedSettings.writingAssistantEnabled);
 
   /**
@@ -214,8 +227,8 @@ function initContentScript() {
           vocabAutoImage: response.data.vocabAutoImage !== false,
           writingAssistantEnabled: response.data.writingAssistantEnabled !== false,
         };
-        applySidebarSettings();
-        startReminderTimer();
+        if (IS_TOP) applySidebarSettings();
+        if (IS_TOP) startReminderTimer();
       }
     } catch {
       // keep defaults

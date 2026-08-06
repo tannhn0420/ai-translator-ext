@@ -30,6 +30,17 @@ const TYPE_LABEL: Record<string, string> = {
 
 const MIN_CHARS = 6;
 
+// True when this script runs inside a sub-frame (e.g. a TinyMCE editor iframe). The panel
+// is then pinned to the frame's top-left instead of below the field, which would otherwise
+// be clipped by a short editor iframe.
+const IN_FRAME = (() => {
+  try {
+    return window.top !== window.self;
+  } catch {
+    return true;
+  }
+})();
+
 function esc(s: string): string {
   const d = document.createElement('div');
   d.textContent = s;
@@ -152,7 +163,7 @@ function showButton(): void {
     btn.textContent = '✍️';
     btn.addEventListener('mousedown', (e) => e.preventDefault()); // keep field focus
     btn.addEventListener('click', () => currentField && openPanel(currentField));
-    document.body.appendChild(btn);
+    (document.body || document.documentElement).appendChild(btn);
   }
   btn.style.display = 'flex';
   positionButton();
@@ -204,7 +215,7 @@ function openPanel(field: HTMLElement): void {
     </div>
     <div class="ai-wa-body"></div>
   `;
-  document.body.appendChild(panel);
+  (document.body || document.documentElement).appendChild(panel);
   panel.querySelector('.ai-wa-close')?.addEventListener('click', closePanel);
   panel.querySelectorAll('.ai-wa-mode').forEach((b) =>
     b.addEventListener('click', () => {
@@ -237,6 +248,14 @@ function openPanel(field: HTMLElement): void {
 /** Place the panel next to the field (below if there's room, otherwise above). */
 function positionPanel(field: HTMLElement): void {
   if (!panel) return;
+  if (IN_FRAME) {
+    // Inside an editor iframe: anchor to the frame's top-left so the panel isn't clipped.
+    panel.style.left = '8px';
+    panel.style.top = '8px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    return;
+  }
   const r = field.getBoundingClientRect();
   const pw = 360;
   const ph = Math.min(panel.offsetHeight || 340, Math.round(window.innerHeight * 0.7));
