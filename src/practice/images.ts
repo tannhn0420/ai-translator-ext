@@ -12,7 +12,9 @@
 const memo = new Map<string, string>(); // term(lower) -> url ('' = looked up, no image)
 const inflight = new Map<string, Promise<string>>();
 let chain: Promise<void> = Promise.resolve();
-const GAP_MS = 350;
+// Spacing between network fetches. Kept modest since callers also gate loading by
+// viewport visibility (IntersectionObserver), so this rarely queues more than a screenful.
+const GAP_MS = 250;
 
 function norm(term: string): string {
   return term.trim().toLowerCase();

@@ -128,6 +128,7 @@ export default function PracticeApp() {
   const [dashOpen, setDashOpen] = useState(false);
   const [daysData, setDaysData] = useState<Record<string, { attempts: number; sumScore: number }>>({});
   const [packTab, setPackTab] = useState<'vocab' | 'phrases' | 'dialogue' | 'passage'>('vocab');
+  const [packNonce, setPackNonce] = useState(0); // bumped per applyPack to force list remount on switch
   const [rolePlay, setRolePlay] = useState(false);
   const [dictOpen, setDictOpen] = useState(false);
   const [passageDict, setPassageDict] = useState(false);
@@ -203,6 +204,10 @@ export default function PracticeApp() {
   function applyPack(p: PracticePack) {
     setPack(p);
     setPackTab(p.vocab.length ? 'vocab' : p.phrases.length ? 'phrases' : p.dialogue.length ? 'dialogue' : 'passage');
+    // Bump so every list item gets a fresh key → remounts on topic switch. Without this,
+    // React reuses instances by index and per-line state (score, transcript, shown image,
+    // "recognizing") bleeds from the previous topic into the new one.
+    setPackNonce((n) => n + 1);
   }
 
   function speak(text: string, lang: Language = 'en', onEnd?: () => void, rate?: number) {
@@ -314,14 +319,15 @@ export default function PracticeApp() {
     void generate('Từ hay sai của tôi', words);
   }
 
-  async function generate(t?: string, words?: string[]) {
+  async function generate(t?: string, words?: string[], lvl?: string) {
     const q = (t ?? topic).trim();
     if (!q || loading) return;
+    const useLevel = lvl ?? level;
     setTopic(q);
     resetModes();
 
     // Instant + token-free if this exact topic+level (+word set) was generated before.
-    const key = packKey(q, level) + (words?.length ? `|w:${words.slice(0, 12).join(',')}` : '');
+    const key = packKey(q, useLevel) + (words?.length ? `|w:${words.slice(0, 12).join(',')}` : '');
     const cached = packCacheRef.current.get(key);
     if (cached) {
       applyPack(cached);
@@ -331,14 +337,14 @@ export default function PracticeApp() {
     setLoading(true);
     setPack(null);
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'GENERATE_PRACTICE', payload: { topic: q, level, words } });
+      const res = await chrome.runtime.sendMessage({ type: 'GENERATE_PRACTICE', payload: { topic: q, level: useLevel, words } });
       if (res?.success && res.data) {
         const pack = res.data as PracticePack;
         applyPack(pack);
         packCacheRef.current.set(key, pack);
-        void persistPack(key, pack, level);
+        void persistPack(key, pack, useLevel);
         if (!words?.length) {
-          setRecent((prev) => [{ key, topic: q, level }, ...prev.filter((r) => r.key !== key)].slice(0, 12));
+          setRecent((prev) => [{ key, topic: q, level: useLevel }, ...prev.filter((r) => r.key !== key)].slice(0, 12));
         }
       } else {
         setError(res?.error || 'Không tạo được bài luyện.');
@@ -377,7 +383,7 @@ export default function PracticeApp() {
     setTopic(r.topic);
     resetModes();
     if (cached) applyPack(cached);
-    else void generate(r.topic);
+    else void generate(r.topic, undefined, r.level);
   }
 
   async function saveVocab() {
@@ -587,7 +593,7 @@ export default function PracticeApp() {
               {saveMsg && <div className="pr-savemsg">{saveMsg}</div>}
               <div className="pr-vocab-grid">
                 {pack.vocab.map((v, i) => (
-                  <VocabItem key={i} v={v} speak={speak} autoImg={autoImg} />
+                  <VocabItem key={`${packNonce}-${i}`} v={v} speak={speak} autoImg={autoImg} />
                 ))}
               </div>
             </section>
@@ -598,7 +604,7 @@ export default function PracticeApp() {
             <section className="pr-section">
               <div className="pr-section-head"><h2>Mẫu câu — luyện nói &amp; nghe</h2></div>
               {pack.phrases.map((p, i) => (
-                <PracticeLine key={i} en={p.en} vi={p.vi} onSpeak={speak} onScore={recordScore} />
+                <PracticeLine key={`${packNonce}-${i}`} en={p.en} vi={p.vi} onSpeak={speak} onScore={recordScore} />
               ))}
             </section>
           )}
@@ -616,12 +622,12 @@ export default function PracticeApp() {
                 )}
               </div>
               {dictOpen ? (
-                <DictationMode segments={pack.dialogue} speak={speak} onScore={recordScore} onExit={() => setDictOpen(false)} />
+                <DictationMode key={`dict-${packNonce}`} segments={pack.dialogue} speak={speak} onScore={recordScore} onExit={() => setDictOpen(false)} />
               ) : rolePlay ? (
-                <RolePlay dialogue={pack.dialogue} speak={speak} onScore={recordScore} onExit={() => setRolePlay(false)} />
+                <RolePlay key={`rp-${packNonce}`} dialogue={pack.dialogue} speak={speak} onScore={recordScore} onExit={() => setRolePlay(false)} />
               ) : (
                 pack.dialogue.map((d: DialogueLine, i) => (
-                  <PracticeLine key={i} en={d.en} vi={d.vi} speaker={d.speaker} onSpeak={speak} onScore={recordScore} />
+                  <PracticeLine key={`${packNonce}-${i}`} en={d.en} vi={d.vi} speaker={d.speaker} onSpeak={speak} onScore={recordScore} />
                 ))
               )}
             </section>
@@ -641,7 +647,7 @@ export default function PracticeApp() {
                 )}
               </div>
               {passageDict ? (
-                <DictationMode segments={pack.passage} speak={speak} onScore={recordScore} onExit={() => setPassageDict(false)} />
+                <DictationMode key={`pdict-${packNonce}`} segments={pack.passage} speak={speak} onScore={recordScore} onExit={() => setPassageDict(false)} />
               ) : (
                 <div className="pr-passage">
                   {pack.passage.map((s, i) => (
@@ -1476,16 +1482,27 @@ function VocabItem({ v, speak, autoImg }: { v: PracticeVocab; speak: (text: stri
   const [img, setImg] = useState(() => cachedImage(v.term) || '');
   const [show, setShow] = useState(true);
   const [loadingImg, setLoadingImg] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
 
-  // Auto-load the illustration (throttled + cached in ./images) when enabled.
-  // setState happens only in the async resolution, never synchronously in the effect body.
+  // Auto-load the illustration only when the card scrolls near the viewport, so a fresh
+  // pack fetches ~visible cards instead of firing all ~20 requests at once. Already-known
+  // images (memoized/cached) render instantly via the initial state and need no fetch.
   useEffect(() => {
-    if (!autoImg) return;
+    if (!autoImg || cachedImage(v.term) !== undefined) return;
+    const el = rootRef.current;
+    if (!el) return;
     let cancelled = false;
-    loadImage(v.term).then((u) => {
-      if (!cancelled) setImg(u);
-    });
-    return () => { cancelled = true; };
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect();
+          loadImage(v.term).then((u) => { if (!cancelled) setImg(u); });
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    io.observe(el);
+    return () => { cancelled = true; io.disconnect(); };
   }, [v.term, autoImg]);
 
   async function onImgBtn() {
@@ -1500,7 +1517,7 @@ function VocabItem({ v, speak, autoImg }: { v: PracticeVocab; speak: (text: stri
 
   const hasImg = !!img;
   return (
-    <div className="pr-vocab">
+    <div className="pr-vocab" ref={rootRef}>
       <div className="pr-vocab-term">
         {v.term}
         <button className="pr-mini" title="Nghe" onClick={() => speak(v.term, 'en')}>🔊</button>
