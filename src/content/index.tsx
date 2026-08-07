@@ -3,7 +3,7 @@
 // ============================================
 // Injected into all web pages to enable highlight translation
 
-import type { TranslateResponse, PageTranslateMode, Language, VocabCard, ProofreadResult } from '../types';
+import type { TranslateResponse, PageTranslateMode, Language, VocabCard, ProofreadResult, PageSummary } from '../types';
 import { handleTranslatePage } from './pageTranslate/controller';
 import { translateSelection } from './pageTranslate/selection';
 import { initWritingAssistant } from './writing';
@@ -157,6 +157,8 @@ function initContentScript() {
       }
     } else if (message.type === 'TRIGGER_ZEN_MODE') {
       activateZenMode();
+    } else if (message.type === 'TRIGGER_SUMMARY') {
+      showReadingHelper();
     } else if (message.type === 'TRANSLATE_PAGE') {
       const mode: PageTranslateMode = message.payload?.mode === 'bilingual' ? 'bilingual' : 'replace';
       const targetLang: Language = message.payload?.targetLang === 'en' ? 'en' : 'vi';
@@ -424,6 +426,7 @@ function initContentScript() {
   const REWRITE_MODES: { key: string; label: string }[] = [
     { key: 'natural', label: 'Tự nhiên' },
     { key: 'correct', label: 'Sửa lỗi' },
+    { key: 'simplify', label: 'Đơn giản' },
     { key: 'formal', label: 'Trang trọng' },
     { key: 'concise', label: 'Ngắn gọn' },
     { key: 'ielts', label: 'IELTS' },
@@ -540,6 +543,96 @@ function initContentScript() {
       </div>
     `;
     wireActionBar(body);
+  }
+
+  /** Extract the main readable text of the page (article/main/body), minus noise + our UI. */
+  function getReadableText(maxChars: number): string {
+    const root = document.querySelector('article') || document.querySelector('main') || document.body;
+    if (!root) return '';
+    const clone = root.cloneNode(true) as HTMLElement;
+    ['nav', 'header', 'footer', 'script', 'style', 'noscript', 'iframe', 'svg', 'aside', '[id^="ai-translator"]', '.ai-tr-bilingual'].forEach(
+      (sel) => clone.querySelectorAll(sel).forEach((el) => el.remove()),
+    );
+    return clone.innerText.trim().slice(0, maxChars);
+  }
+
+  /** Reading helper: Vietnamese summary + key vocabulary for the current article. */
+  async function showReadingHelper() {
+    if (document.getElementById('ai-translator-reading')) return; // don't stack
+    const text = getReadableText(12000);
+    if (text.length < 80) {
+      showInlineToast('Không tìm thấy đủ nội dung để tóm tắt trên trang này.', false);
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ai-translator-reading';
+    overlay.innerHTML = `
+      <div class="ai-rh-card">
+        <div class="ai-rh-head">
+          <span>📄 Tóm tắt &amp; từ khoá</span>
+          <button class="ai-rh-close" title="Đóng">✕</button>
+        </div>
+        <div class="ai-rh-body">
+          <div class="ai-translator-bubble-loading"><div class="ai-translator-spinner"></div><span>Đang đọc và tóm tắt…</span></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('.ai-rh-close')?.addEventListener('click', close);
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+    const body = overlay.querySelector('.ai-rh-body') as HTMLElement;
+
+    let res: { success?: boolean; data?: PageSummary; error?: string } | undefined;
+    try {
+      res = await chrome.runtime.sendMessage({ type: 'SUMMARIZE_PAGE', payload: { text } });
+    } catch {
+      body.innerHTML = `<div class="ai-translator-bubble-error">⚠️ Lỗi kết nối.</div>`;
+      return;
+    }
+    if (!document.getElementById('ai-translator-reading')) return; // closed while waiting
+    if (!res?.success || !res.data) {
+      body.innerHTML = `<div class="ai-translator-bubble-error">⚠️ ${escapeHtml(res?.error || 'Không tóm tắt được')}</div>`;
+      return;
+    }
+    renderReadingHelp(body, res.data);
+  }
+
+  function renderReadingHelp(body: HTMLElement, data: PageSummary) {
+    const kw = data.keywords
+      .map(
+        (k) => `
+      <div class="ai-rh-kw">
+        <div class="ai-rh-kw-main"><b>${escapeHtml(k.term)}</b> — ${escapeHtml(k.meaning)}</div>
+        <div class="ai-rh-kw-acts">
+          <button class="ai-tts-btn ai-rh-mini" data-text="${escapeHtml(k.term)}" data-lang="en" title="Nghe">🔊</button>
+          <button class="ai-rh-save ai-rh-mini" data-term="${escapeHtml(k.term)}" data-meaning="${escapeHtml(k.meaning)}" title="Lưu vào sổ từ vựng">📇</button>
+        </div>
+      </div>`,
+      )
+      .join('');
+    body.innerHTML = `
+      ${data.summary ? `<div class="ai-rh-summary">${escapeHtml(data.summary).replace(/\n/g, '<br>')}</div>` : ''}
+      ${data.keywords.length ? `<h4 class="ai-rh-h">Từ khoá đáng học</h4><div class="ai-rh-kws">${kw}</div>` : ''}
+    `;
+    wireActionBar(body);
+    body.querySelectorAll('.ai-rh-save').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const el = b as HTMLButtonElement;
+        if (el.disabled) return;
+        try {
+          const r = await chrome.runtime.sendMessage({
+            type: 'SAVE_VOCAB',
+            payload: { term: el.dataset.term || '', meaning: el.dataset.meaning || '', lang: 'en', sourceUrl: location.href },
+          });
+          el.textContent = r?.data?.added === false ? '↺' : '✓';
+          el.disabled = true;
+        } catch {
+          /* ignore */
+        }
+      }),
+    );
   }
 
   /**

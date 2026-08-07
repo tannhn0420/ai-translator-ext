@@ -173,6 +173,8 @@ export const WRITING_MODE_INSTRUCTION: Record<string, string> = {
     'Make it clearer and more concise: fix errors, cut redundancy and filler, keep the meaning.',
   ielts:
     'Rewrite to IELTS Band 8.0+ quality: precise less-common vocabulary, a mix of complex structures, natural cohesion, near-zero errors — keep the meaning and length within ±20%.',
+  simplify:
+    'Rewrite in SIMPLER English for an intermediate learner: shorter sentences, common everyday words, no idioms — keep the original meaning (graded-reader style).',
 };
 
 export const WRITING_TEMPLATE = `Task: {mode_instruction}
@@ -193,6 +195,26 @@ Rules:
 - Keep the author's intended meaning; do not add new information.
 
 Text:
+{text}`;
+
+// ============================================
+// Reading helper — summarize an article + surface key vocabulary
+// ============================================
+
+export const SUMMARIZE_SYSTEM_PROMPT = `You help a Vietnamese learner of English read faster. You summarize an English article in clear Vietnamese and pick the most useful English words/phrases to learn from it. You answer with STRICT JSON only.`;
+
+export const SUMMARIZE_TEMPLATE = `Read the article text below and return ONLY JSON (no code fences, no commentary):
+{
+  "summary": "<tóm tắt nội dung bằng TIẾNG VIỆT, 4-6 câu, nêu ý chính>",
+  "keywords": [
+    {"term":"<English word or phrase worth learning from the article>","meaning":"<nghĩa TIẾNG VIỆT ngắn gọn>"}
+  ]
+}
+Rules:
+- 8–15 keywords, prioritise useful/less-common words actually present in the text.
+- The summary is in Vietnamese; keep it faithful and concise.
+
+Article:
 {text}`;
 
 // ============================================

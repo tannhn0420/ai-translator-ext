@@ -237,6 +237,17 @@ function App() {
     }
   };
 
+  const summarizePage = async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+      await chrome.tabs.sendMessage(tab.id, { type: 'TRIGGER_SUMMARY' });
+      window.close();
+    } catch {
+      setError('Không tóm tắt được trên trang này.');
+    }
+  };
+
   const translateFullPage = async () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -351,6 +362,7 @@ function App() {
           <button className="header-btn" onClick={openPractice} title="Luyện tập theo chủ đề">🎯</button>
           <button className="header-btn" onClick={openFlashcards} title="Sổ từ vựng">📇</button>
           <button className="header-btn" onClick={openZenMode} title="Đọc tập trung (Zen)">📖</button>
+          <button className="header-btn" onClick={summarizePage} title="Tóm tắt &amp; từ khoá trang">📄</button>
           <button className="header-btn" onClick={openOptions} title="Cài đặt">⚙️</button>
         </div>
       </header>

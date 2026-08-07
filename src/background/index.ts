@@ -47,6 +47,8 @@ import {
   WRITING_SYSTEM_PROMPT,
   WRITING_TEMPLATE,
   WRITING_MODE_INSTRUCTION,
+  SUMMARIZE_SYSTEM_PROMPT,
+  SUMMARIZE_TEMPLATE,
   INPLACE_TRANSLATION_TEMPLATE,
   CONTEXT_TRANSLATION_TEMPLATE,
   DICTIONARY_TEMPLATE,
@@ -223,6 +225,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
 
     case 'PROOFREAD':
       return await handleProofread(message as any);
+
+    case 'SUMMARIZE_PAGE':
+      return await handleSummarize(message as any);
 
     case 'TRANSLATE_INPLACE':
       return await handleInplaceTranslate(message as any);
@@ -596,6 +601,54 @@ async function handleProofread(request: any): Promise<any> {
   const level = typeof parsed.level === 'string' ? parsed.level.trim().toUpperCase() : '';
 
   return { success: true, data: { corrected, issues, level } };
+}
+
+const SUMMARIZE_MAX_CHARS = 12000;
+
+/** Summarize an article in Vietnamese + surface key vocabulary. */
+async function handleSummarize(request: any): Promise<any> {
+  const settings = await getSettings();
+  const text: string = (request.payload?.text || '').toString().slice(0, SUMMARIZE_MAX_CHARS);
+  if (text.trim().length < 40) return { success: false, error: 'Không đủ nội dung để tóm tắt.' };
+
+  const providers = buildProviderList(settings);
+  if (!providers.some((p) => p.key)) {
+    return { success: false, error: 'Chưa cấu hình API Key hoặc Provider không hợp lệ.' };
+  }
+
+  let raw = '';
+  let lastError: Error | null = null;
+  for (const p of providers) {
+    if (!p.key) continue;
+    try {
+      await pace();
+      raw = await callProvider(p, text, 'auto', 'vi', SUMMARIZE_SYSTEM_PROMPT, SUMMARIZE_TEMPLATE, PAGE_BATCH_MAX_OUTPUT_TOKENS);
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err as Error;
+    }
+  }
+  if (!raw) return { success: false, error: lastError?.message || 'Không tóm tắt được.' };
+
+  const parsed = extractJson(raw) as Record<string, unknown> | null;
+  if (!parsed || typeof parsed !== 'object') {
+    return { success: false, error: 'Kết quả AI không hợp lệ, thử lại nhé.' };
+  }
+  const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+  const rawKw = Array.isArray(parsed.keywords) ? parsed.keywords : [];
+  const keywords = rawKw
+    .map((x) => {
+      const o = (x || {}) as Record<string, unknown>;
+      const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+      return { term: str(o.term), meaning: str(o.meaning) };
+    })
+    .filter((k) => k.term)
+    .slice(0, 15);
+  if (!summary && keywords.length === 0) {
+    return { success: false, error: 'Không tóm tắt được, thử lại nhé.' };
+  }
+  return { success: true, data: { summary, keywords } };
 }
 
 async function handleInplaceTranslate(request: any): Promise<any> {

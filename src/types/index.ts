@@ -42,6 +42,7 @@ export type MessageType =
   | 'ANALYZE_IELTS'
   | 'EXPLAIN_GRAMMAR'
   | 'PROOFREAD'
+  | 'SUMMARIZE_PAGE'
   | 'TRANSLATE_INPLACE'
   | 'TRANSLATE_SELECTION_INLINE'
   | 'TOGGLE_PIN_HISTORY'
@@ -305,6 +306,16 @@ export interface ProofreadResult {
   corrected: string; // the improved full text
   issues: WritingIssue[];
   level?: string; // CEFR estimate of the ORIGINAL text (A1..C2)
+}
+
+// Reading helper — Vietnamese summary + key vocabulary for an article.
+export interface SummaryKeyword {
+  term: string; // English word/phrase worth learning
+  meaning: string; // short Vietnamese meaning
+}
+export interface PageSummary {
+  summary: string; // Vietnamese summary
+  keywords: SummaryKeyword[];
 }
 
 // Gemini API types
