@@ -585,6 +585,40 @@
 }
 
 /* ============================================
+   Highlight hard words
+   ============================================ */
+.ai-hw {
+  background: rgba(250, 204, 21, 0.28);
+  border-bottom: 1.5px dashed rgba(202, 138, 4, 0.8);
+  border-radius: 2px;
+  cursor: pointer;
+  padding: 0 1px;
+}
+.ai-hw:hover { background: rgba(250, 204, 21, 0.5); }
+.ai-hw-pop {
+  position: absolute;
+  z-index: 2147483647;
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  background: rgba(15, 15, 35, 0.98);
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-family: Inter, system-ui, sans-serif;
+}
+.ai-hw-pop .ai-hw-b {
+  all: unset;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: #e2e8f0;
+  padding: 6px 10px;
+  border-radius: 7px;
+  white-space: nowrap;
+}
+.ai-hw-pop .ai-hw-b:hover { background: rgba(99, 102, 241, 0.3); }
+
+/* ============================================
    Reading helper (summary + keywords) overlay
    ============================================ */
 #ai-translator-reading {

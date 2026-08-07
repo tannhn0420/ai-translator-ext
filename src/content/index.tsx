@@ -7,6 +7,7 @@ import type { TranslateResponse, PageTranslateMode, Language, VocabCard, Proofre
 import { handleTranslatePage } from './pageTranslate/controller';
 import { translateSelection } from './pageTranslate/selection';
 import { initWritingAssistant } from './writing';
+import { initHighlight, toggleHighlight } from './highlight';
 import { reviewCard } from '../utils/srs';
 
 // Avoid re-injection
@@ -28,6 +29,7 @@ interface CachedSettings {
   reminderIntervalMin: number;
   vocabAutoImage: boolean;
   writingAssistantEnabled: boolean;
+  highlightMinLen: number;
 }
 
 const CONTEXT_CHARS_AROUND = 250;
@@ -57,6 +59,7 @@ function initContentScript() {
     reminderIntervalMin: 10,
     vocabAutoImage: true,
     writingAssistantEnabled: true,
+    highlightMinLen: 7,
   };
   let reminderTimer: ReturnType<typeof setInterval> | null = null;
   let reminderIntervalCur = 0; // minutes the current timer was created with
@@ -159,6 +162,12 @@ function initContentScript() {
       activateZenMode();
     } else if (message.type === 'TRIGGER_SUMMARY') {
       showReadingHelper();
+    } else if (message.type === 'TRIGGER_HIGHLIGHT') {
+      void toggleHighlight(cachedSettings.highlightMinLen).then((count) => {
+        if (count === -1) showInlineToast('Đã tắt tô sáng từ khó.', true);
+        else if (count === 0) showInlineToast('Không thấy từ khó theo danh sách (thử giảm độ dài tối thiểu trong Cài đặt).', false);
+        else showInlineToast(`Đã tô ${count} từ khó — bấm vào từ để xem nghĩa hoặc đánh dấu "đã biết".`, true);
+      });
     } else if (message.type === 'TRANSLATE_PAGE') {
       const mode: PageTranslateMode = message.payload?.mode === 'bilingual' ? 'bilingual' : 'replace';
       const targetLang: Language = message.payload?.targetLang === 'en' ? 'en' : 'vi';
@@ -176,6 +185,7 @@ function initContentScript() {
   loadSettings();
   if (IS_TOP) maybeAutoTranslatePage();
   initWritingAssistant(() => cachedSettings.writingAssistantEnabled);
+  if (IS_TOP) initHighlight((word, rect) => showTranslationBubble(rect, word, ''));
 
   /**
    * Auto-translate the whole page on load if the current host is in the user's
@@ -228,6 +238,7 @@ function initContentScript() {
           reminderIntervalMin: response.data.reminderIntervalMin || 10,
           vocabAutoImage: response.data.vocabAutoImage !== false,
           writingAssistantEnabled: response.data.writingAssistantEnabled !== false,
+          highlightMinLen: response.data.highlightMinLen || 7,
         };
         if (IS_TOP) applySidebarSettings();
         if (IS_TOP) startReminderTimer();

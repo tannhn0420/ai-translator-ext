@@ -49,6 +49,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   vocabAutoImage: true,
   writingAssistantEnabled: true,
+  highlightMinLen: 7,
   sidebarToggleY: 0,    // 0 means use default (50%)
   sidebarWidth: 360,
   totalTranslations: 0,

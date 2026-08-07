@@ -47,6 +47,7 @@ function OptionsApp() {
   const [reminderIntervalMin, setReminderIntervalMin] = useState(10);
   const [vocabAutoImage, setVocabAutoImage] = useState(true);
   const [writingAssistantEnabled, setWritingAssistantEnabled] = useState(true);
+  const [highlightMinLen, setHighlightMinLen] = useState(7);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -95,6 +96,7 @@ function OptionsApp() {
         setReminderIntervalMin(s.reminderIntervalMin || 10);
         setVocabAutoImage(s.vocabAutoImage !== false);
         setWritingAssistantEnabled(s.writingAssistantEnabled !== false);
+        setHighlightMinLen(typeof s.highlightMinLen === 'number' ? s.highlightMinLen : 7);
       }
     } catch {
       console.log('Running outside extension context');
@@ -774,6 +776,22 @@ function OptionsApp() {
                 />
                 <span className="toggle-slider"></span>
               </label>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">🖍️ Tô sáng từ khó — độ dài từ tối thiểu: {highlightMinLen} chữ cái</label>
+              <input
+                type="range"
+                min="5"
+                max="10"
+                step="1"
+                value={highlightMinLen}
+                style={{ width: '100%' }}
+                onChange={(e) => setHighlightMinLen(parseInt(e.target.value))}
+                onMouseUp={() => saveField({ highlightMinLen })}
+                onTouchEnd={() => saveField({ highlightMinLen })}
+              />
+              <p className="form-help">Thấp = tô nhiều từ hơn (kể cả từ trung bình); cao = chỉ tô từ dài/khó. Bật tô sáng bằng nút 🖍️ trên popup.</p>
             </div>
 
             <h3 className="subsection-title">📚 Học từ vựng</h3>

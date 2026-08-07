@@ -179,6 +179,9 @@ export interface AppSettings {
   // Writing assistant
   writingAssistantEnabled: boolean; // show the ✍️ proofread button on editable fields
 
+  // Highlight hard words
+  highlightMinLen: number; // minimum word length to consider "hard" (sensitivity)
+
   // UI state
   sidebarToggleY: number; // px from top, persisted icon position
   sidebarWidth: number;   // px

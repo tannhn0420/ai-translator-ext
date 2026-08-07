@@ -248,6 +248,17 @@ function App() {
     }
   };
 
+  const toggleHighlight = async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+      await chrome.tabs.sendMessage(tab.id, { type: 'TRIGGER_HIGHLIGHT' });
+      window.close();
+    } catch {
+      setError('Không tô sáng được trên trang này.');
+    }
+  };
+
   const translateFullPage = async () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -363,6 +374,7 @@ function App() {
           <button className="header-btn" onClick={openFlashcards} title="Sổ từ vựng">📇</button>
           <button className="header-btn" onClick={openZenMode} title="Đọc tập trung (Zen)">📖</button>
           <button className="header-btn" onClick={summarizePage} title="Tóm tắt &amp; từ khoá trang">📄</button>
+          <button className="header-btn" onClick={toggleHighlight} title="Tô sáng từ khó trên trang">🖍️</button>
           <button className="header-btn" onClick={openOptions} title="Cài đặt">⚙️</button>
         </div>
       </header>
