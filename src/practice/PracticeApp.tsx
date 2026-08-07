@@ -689,22 +689,28 @@ function ChatMode({
 }: {
   topic: string;
   level: string;
-  speak: (text: string, lang?: Language) => void;
+  speak: (text: string, lang?: Language, onEnd?: () => void, rate?: number) => void;
   onExit: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [thinking, setThinking] = useState(false);
   const [recognizing, setRecognizing] = useState(false);
   const [interim, setInterim] = useState('');
+  const [live, setLive] = useState(false); // hands-free voice conversation
+  const [liveHint, setLiveHint] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
   const recRef = useRef<RecognitionHandle | null>(null);
+  const liveRef = useRef(false);
+  const messagesRef = useRef<ChatMsg[]>([]);
+  const emptyCountRef = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
     void turn([]); // AI opens the conversation
     return () => {
       mounted.current = false;
+      liveRef.current = false;
       window.speechSynthesis?.cancel();
       recRef.current?.stop();
     };
@@ -714,6 +720,13 @@ function ChatMode({
   useEffect(() => {
     listRef.current?.scrollTo(0, listRef.current.scrollHeight);
   }, [messages, thinking]);
+
+  useEffect(() => {
+    liveRef.current = live;
+  }, [live]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   async function turn(history: ChatMsg[]) {
     setThinking(true);
@@ -725,14 +738,73 @@ function ChatMode({
         const reply: string = res.data.reply;
         const correction: string = res.data.correction || '';
         setMessages((m) => [...m, { role: 'assistant', text: reply, correction }]);
-        speak(reply, 'en');
+        // In live mode, auto-listen again once the AI finishes speaking (hands-free loop).
+        if (liveRef.current) speak(reply, 'en', () => { if (liveRef.current && mounted.current) void liveListen(); });
+        else speak(reply, 'en');
       } else {
         setMessages((m) => [...m, { role: 'assistant', text: `⚠️ ${res?.error || 'Không phản hồi được.'}` }]);
+        if (liveRef.current) stopLive('Có lỗi — đã dừng trò chuyện trực tiếp.');
       }
     } catch {
       if (mounted.current) setMessages((m) => [...m, { role: 'assistant', text: '⚠️ Lỗi kết nối.' }]);
+      if (liveRef.current) stopLive('Lỗi kết nối — đã dừng.');
     }
     if (mounted.current) setThinking(false);
+  }
+
+  /** One hands-free listen turn: capture speech → auto-send. Re-arms on brief silence. */
+  async function liveListen() {
+    if (!liveRef.current || !mounted.current || thinking) return;
+    setLiveHint('');
+    setRecognizing(true);
+    setInterim('');
+    const { promise, handle } = recognizeOnce('en-US', setInterim);
+    recRef.current = handle;
+    let said = '';
+    try {
+      said = await promise;
+    } catch {
+      /* no speech / mic error */
+    }
+    if (!mounted.current || !liveRef.current) {
+      setRecognizing(false);
+      return;
+    }
+    setRecognizing(false);
+    setInterim('');
+    if (!said.trim()) {
+      emptyCountRef.current += 1;
+      if (emptyCountRef.current >= 2) {
+        stopLive('Không nghe thấy gì — đã tạm dừng. Bấm “Trò chuyện trực tiếp” để tiếp tục.');
+        return;
+      }
+      void liveListen(); // brief silence → listen again
+      return;
+    }
+    emptyCountRef.current = 0;
+    const nextMsgs: ChatMsg[] = [...messagesRef.current, { role: 'user', text: said }];
+    setMessages(nextMsgs);
+    await turn(nextMsgs); // reply is spoken; its onEnd re-invokes liveListen
+  }
+
+  function startLive() {
+    if (!SR_SUPPORTED) return;
+    emptyCountRef.current = 0;
+    setLiveHint('');
+    setLive(true);
+    liveRef.current = true;
+    window.speechSynthesis?.cancel(); // stop any ongoing opener speech, listen right away
+    void liveListen();
+  }
+
+  function stopLive(hint = '') {
+    setLive(false);
+    liveRef.current = false;
+    recRef.current?.stop();
+    window.speechSynthesis?.cancel();
+    setRecognizing(false);
+    setInterim('');
+    setLiveHint(hint);
   }
 
   async function speakTurn() {
@@ -780,13 +852,27 @@ function ChatMode({
         )}
       </div>
       <div className="pr-chat-actions">
-        <button
-          className={`pr-generate ${recognizing ? 'rec' : ''}`}
-          onClick={recognizing ? () => recRef.current?.stop() : speakTurn}
-          disabled={thinking}
-        >
-          {recognizing ? '● Đang nghe… (bấm để dừng)' : '🎤 Nói'}
-        </button>
+        {liveHint && <div className="pr-live-hint">{liveHint}</div>}
+        {live ? (
+          <button className="pr-generate rec" onClick={() => stopLive()}>
+            {thinking ? '🤖 Đang trả lời…' : recognizing ? '● Đang nghe bạn nói…' : '🎙️ Trực tiếp — bấm để dừng'}
+          </button>
+        ) : (
+          <div className="pr-chat-btns">
+            {SR_SUPPORTED && (
+              <button className="pr-generate" onClick={startLive} disabled={thinking} title="Nói chuyện rảnh tay: nói xong AI tự trả lời và tự nghe lại">
+                🎙️ Trò chuyện trực tiếp
+              </button>
+            )}
+            <button
+              className={`pr-act ${recognizing ? 'rec' : ''}`}
+              onClick={recognizing ? () => recRef.current?.stop() : speakTurn}
+              disabled={thinking}
+            >
+              {recognizing ? '● Đang nghe… (dừng)' : '🎤 Nói 1 lượt'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
