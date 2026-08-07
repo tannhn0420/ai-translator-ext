@@ -421,6 +421,14 @@ function initContentScript() {
     document.body.appendChild(iconNode);
   }
 
+  const REWRITE_MODES: { key: string; label: string }[] = [
+    { key: 'natural', label: 'Tự nhiên' },
+    { key: 'correct', label: 'Sửa lỗi' },
+    { key: 'formal', label: 'Trang trọng' },
+    { key: 'concise', label: 'Ngắn gọn' },
+    { key: 'ielts', label: 'IELTS' },
+  ];
+
   /** Build the bubble scaffold (header + empty loading body), position + wire it, return it. */
   function createBubble(rect: DOMRect, logo: string, title: string, loadingText: string): HTMLElement {
     removeBubble();
@@ -467,23 +475,47 @@ function initContentScript() {
     translateText(text, context);
   }
 
-  /** Rewrite/improve the selected English text; read-only result the user can copy or listen to. */
+  /** Rewrite/improve the selected English text; read-only result the user can copy or listen to.
+   *  A mode bar (Tự nhiên / Sửa lỗi / Trang trọng / Ngắn gọn / IELTS) re-runs on the same text. */
   function showRewriteBubble(rect: DOMRect, text: string) {
-    createBubble(rect, '✨', 'Viết lại tự nhiên', 'Đang viết lại...');
+    createBubble(rect, '✨', 'Viết lại', '…');
     const body = bubble?.querySelector('.ai-translator-bubble-body') as HTMLElement | null;
-    chrome.runtime
-      .sendMessage({ type: 'PROOFREAD', payload: { text, mode: 'natural' } })
-      .then((res: { success?: boolean; data?: ProofreadResult; error?: string }) => {
-        if (!bubble || !body) return;
-        if (!res?.success || !res.data) {
-          body.innerHTML = `<div class="ai-translator-bubble-error">⚠️ ${escapeHtml(res?.error || 'Không viết lại được')}</div>`;
-          return;
-        }
-        renderRewriteResult(body, res.data, text);
-      })
-      .catch(() => {
-        if (body) body.innerHTML = `<div class="ai-translator-bubble-error">⚠️ Lỗi kết nối</div>`;
-      });
+    if (!body) return;
+
+    let mode = 'natural';
+    body.innerHTML = `
+      <div class="ai-rw-modes">
+        ${REWRITE_MODES.map(
+          (m) => `<button class="ai-rw-mode${m.key === mode ? ' on' : ''}" data-mode="${m.key}">${m.label}</button>`,
+        ).join('')}
+      </div>
+      <div class="ai-rw-result"></div>
+    `;
+    const resultEl = body.querySelector('.ai-rw-result') as HTMLElement;
+
+    const run = (m: string) => {
+      mode = m;
+      body.querySelectorAll('.ai-rw-mode').forEach((x) => x.classList.toggle('on', (x as HTMLElement).dataset.mode === m));
+      resultEl.innerHTML = `<div class="ai-translator-bubble-loading"><div class="ai-translator-spinner"></div><span>Đang viết lại...</span></div>`;
+      chrome.runtime
+        .sendMessage({ type: 'PROOFREAD', payload: { text, mode: m } })
+        .then((res: { success?: boolean; data?: ProofreadResult; error?: string }) => {
+          if (!bubble || !resultEl.isConnected) return;
+          if (!res?.success || !res.data) {
+            resultEl.innerHTML = `<div class="ai-translator-bubble-error">⚠️ ${escapeHtml(res?.error || 'Không viết lại được')}</div>`;
+            return;
+          }
+          renderRewriteResult(resultEl, res.data, text);
+        })
+        .catch(() => {
+          if (resultEl.isConnected) resultEl.innerHTML = `<div class="ai-translator-bubble-error">⚠️ Lỗi kết nối</div>`;
+        });
+    };
+
+    body.querySelectorAll('.ai-rw-mode').forEach((b) =>
+      b.addEventListener('click', () => run((b as HTMLElement).dataset.mode as string)),
+    );
+    run(mode);
   }
 
   function renderRewriteResult(body: HTMLElement, data: ProofreadResult, original: string) {

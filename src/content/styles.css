@@ -637,6 +637,31 @@
 }
 
 /* Rewrite result bubble */
+.ai-rw-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+.ai-rw-mode {
+  all: unset;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #c7d2fe;
+  border: 1px solid transparent;
+  font-family: Inter, system-ui, sans-serif;
+}
+.ai-rw-mode:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+.ai-rw-mode.on {
+  background: rgba(99, 102, 241, 0.32);
+  border-color: rgba(99, 102, 241, 0.55);
+  color: #fff;
+}
 .ai-rw-level {
   display: inline-block;
   background: rgba(16, 185, 129, 0.2);
