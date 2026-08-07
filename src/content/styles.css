@@ -585,6 +585,107 @@
 }
 
 /* ============================================
+   Selection icon → hover menu (Dịch / Viết lại)
+   ============================================ */
+
+#ai-translator-icon {
+  font-family: Inter, system-ui, sans-serif;
+}
+#ai-translator-icon .ai-tr-badge {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  background: rgba(15, 15, 35, 0.96);
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  border-radius: 50%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+#ai-translator-icon:hover .ai-tr-badge {
+  transform: scale(1.08);
+}
+#ai-translator-icon .ai-tr-menu {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 6px;
+  background: rgba(15, 15, 35, 0.98);
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+#ai-translator-icon:hover .ai-tr-menu {
+  display: flex;
+}
+#ai-translator-icon .ai-tr-opt {
+  all: unset;
+  cursor: pointer;
+  font-size: 13px;
+  color: #e2e8f0;
+  padding: 7px 14px;
+  border-radius: 7px;
+  white-space: nowrap;
+  font-family: Inter, system-ui, sans-serif;
+}
+#ai-translator-icon .ai-tr-opt:hover {
+  background: rgba(99, 102, 241, 0.32);
+}
+
+/* Rewrite result bubble */
+.ai-rw-level {
+  display: inline-block;
+  background: rgba(16, 185, 129, 0.2);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #6ee7b7;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-bottom: 8px;
+}
+.ai-rw-corrected {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 10px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: #e2e8f0;
+}
+.ai-rw-note {
+  color: #94a3b8;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.ai-rw-issues {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ai-rw-issue {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 6px;
+  font-size: 12.5px;
+}
+.ai-rw-fix s {
+  color: #fca5a5;
+}
+.ai-rw-fix b {
+  color: #6ee7b7;
+}
+.ai-rw-why {
+  color: #94a3b8;
+  font-size: 12px;
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+/* ============================================
    New: action bar, TTS, dictionary, search, pin
    ============================================ */
 

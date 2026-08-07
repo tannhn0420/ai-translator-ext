@@ -3,7 +3,7 @@
 // ============================================
 // Injected into all web pages to enable highlight translation
 
-import type { TranslateResponse, PageTranslateMode, Language, VocabCard } from '../types';
+import type { TranslateResponse, PageTranslateMode, Language, VocabCard, ProofreadResult } from '../types';
 import { handleTranslatePage } from './pageTranslate/controller';
 import { translateSelection } from './pageTranslate/selection';
 import { initWritingAssistant } from './writing';
@@ -312,10 +312,9 @@ function initContentScript() {
 
     const wordCount = selectedText.split(/\s+/).length;
 
-    if (autoTranslate && wordCount >= 2) {
-      showTranslationBubble({ left: x - 150, top: y + 10, width: 300 } as DOMRect, selectedText, context);
-    } else if (autoTranslate && wordCount <= DICT_WORD_LIMIT && cachedSettings.dictionaryModeEnabled) {
-      // Single-word lookups auto-translate as dictionary
+    // Short lookups (1–2 words) pop the dictionary straight away — that's the quick vocab flow.
+    // Anything longer (a passage) shows the icon; hovering it lets the user pick Dịch / Viết lại.
+    if (autoTranslate && wordCount <= DICT_WORD_LIMIT && cachedSettings.dictionaryModeEnabled) {
       showTranslationBubble({ left: x - 150, top: y + 10, width: 300 } as DOMRect, selectedText, context);
     } else {
       showTranslateIcon(rect, selectedText, e, context);
@@ -387,40 +386,43 @@ function initContentScript() {
     }
   }
 
+  /** Show a small icon near the selection; hovering it reveals "Dịch" and "Viết lại". */
   function showTranslateIcon(rect: DOMRect, text: string, e: MouseEvent, context: string) {
     removeBubble();
     removeIcon();
 
     iconNode = document.createElement('div');
     iconNode.id = 'ai-translator-icon';
-    iconNode.innerHTML = `🌐`;
-
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-    const iconX = e.clientX + scrollX + 10;
-    const iconY = e.clientY + scrollY + 15;
-
-    iconNode.style.cssText = `
-      position: absolute; left: ${iconX}px; top: ${iconY}px;
-      z-index: 2147483647; cursor: pointer; font-size: 20px;
-      background: rgba(15,15,35,0.95); border: 1px solid rgba(99,102,241,0.3);
-      border-radius: 50%; padding: 4px 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: transform 0.1s ease;
+    iconNode.innerHTML = `
+      <div class="ai-tr-badge" title="AI Translator">✨</div>
+      <div class="ai-tr-menu">
+        <button class="ai-tr-opt" data-act="translate">🌐 Dịch</button>
+        <button class="ai-tr-opt" data-act="rewrite">✨ Viết lại</button>
+      </div>
     `;
-    iconNode.addEventListener('mouseenter', () => { if (iconNode) iconNode.style.transform = 'scale(1.1)'; });
-    iconNode.addEventListener('mouseleave', () => { if (iconNode) iconNode.style.transform = 'scale(1)'; });
-    iconNode.addEventListener('mousedown', (ev) => { ev.preventDefault(); ev.stopPropagation(); });
-    iconNode.addEventListener('mouseup', (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      removeIcon();
-      showTranslationBubble(rect, text, context);
-    });
+
+    const iconX = e.clientX + window.scrollX + 10;
+    const iconY = e.clientY + window.scrollY + 12;
+    iconNode.style.cssText = `position: absolute; left: ${iconX}px; top: ${iconY}px; z-index: 2147483647;`;
+
+    // Keep the page selection while interacting with the icon/menu.
+    iconNode.addEventListener('mousedown', (ev) => ev.preventDefault());
+    iconNode.querySelectorAll('.ai-tr-opt').forEach((b) =>
+      b.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const act = (b as HTMLElement).dataset.act;
+        removeIcon();
+        if (act === 'rewrite') showRewriteBubble(rect, text);
+        else showTranslationBubble(rect, text, context);
+      }),
+    );
 
     document.body.appendChild(iconNode);
   }
 
-  function showTranslationBubble(rect: DOMRect, text: string, context: string) {
+  /** Build the bubble scaffold (header + empty loading body), position + wire it, return it. */
+  function createBubble(rect: DOMRect, logo: string, title: string, loadingText: string): HTMLElement {
     removeBubble();
 
     bubble = document.createElement('div');
@@ -428,15 +430,15 @@ function initContentScript() {
     bubble.innerHTML = `
       <div class="ai-translator-bubble-content">
         <div class="ai-translator-bubble-header" data-drag-handle="1">
-          <span class="ai-translator-bubble-logo">🌐</span>
-          <span class="ai-translator-bubble-title">AI Translator</span>
+          <span class="ai-translator-bubble-logo">${logo}</span>
+          <span class="ai-translator-bubble-title">${escapeHtml(title)}</span>
           <button class="ai-translator-bubble-pin" id="ai-translator-bubble-pin" title="Pin to position">📌</button>
           <button class="ai-translator-bubble-close" id="ai-translator-close" title="Close">✕</button>
         </div>
         <div class="ai-translator-bubble-body">
           <div class="ai-translator-bubble-loading">
             <div class="ai-translator-spinner"></div>
-            <span>Đang dịch...</span>
+            <span>${escapeHtml(loadingText)}</span>
           </div>
         </div>
       </div>
@@ -455,14 +457,57 @@ function initContentScript() {
     bubble.style.zIndex = '2147483647';
 
     document.body.appendChild(bubble);
-
-    const closeBtn = bubble.querySelector('#ai-translator-close');
-    closeBtn?.addEventListener('click', removeBubble);
-
-    // Enable drag from header
+    bubble.querySelector('#ai-translator-close')?.addEventListener('click', removeBubble);
     enableBubbleDrag(bubble);
+    return bubble;
+  }
 
+  function showTranslationBubble(rect: DOMRect, text: string, context: string) {
+    createBubble(rect, '🌐', 'AI Translator', 'Đang dịch...');
     translateText(text, context);
+  }
+
+  /** Rewrite/improve the selected English text; read-only result the user can copy or listen to. */
+  function showRewriteBubble(rect: DOMRect, text: string) {
+    createBubble(rect, '✨', 'Viết lại tự nhiên', 'Đang viết lại...');
+    const body = bubble?.querySelector('.ai-translator-bubble-body') as HTMLElement | null;
+    chrome.runtime
+      .sendMessage({ type: 'PROOFREAD', payload: { text, mode: 'natural' } })
+      .then((res: { success?: boolean; data?: ProofreadResult; error?: string }) => {
+        if (!bubble || !body) return;
+        if (!res?.success || !res.data) {
+          body.innerHTML = `<div class="ai-translator-bubble-error">⚠️ ${escapeHtml(res?.error || 'Không viết lại được')}</div>`;
+          return;
+        }
+        renderRewriteResult(body, res.data, text);
+      })
+      .catch(() => {
+        if (body) body.innerHTML = `<div class="ai-translator-bubble-error">⚠️ Lỗi kết nối</div>`;
+      });
+  }
+
+  function renderRewriteResult(body: HTMLElement, data: ProofreadResult, original: string) {
+    const changed = data.corrected.trim() !== original.trim();
+    const issuesHtml = (data.issues || []).length
+      ? `<div class="ai-rw-issues">${data
+          .issues!.map(
+            (i) =>
+              `<div class="ai-rw-issue"><span class="ai-rw-fix"><s>${escapeHtml(i.original)}</s> → <b>${escapeHtml(i.suggestion)}</b></span>${i.why ? `<div class="ai-rw-why">${escapeHtml(i.why)}</div>` : ''}</div>`,
+          )
+          .join('')}</div>`
+      : '';
+    body.innerHTML = `
+      <div class="ai-translator-bubble-result-container">
+        ${data.level ? `<span class="ai-rw-level">CEFR ${escapeHtml(data.level)}</span>` : ''}
+        <div class="ai-rw-corrected">${escapeHtml(data.corrected)}</div>
+        <div class="ai-action-bar">
+          <button class="ai-tts-btn" data-text="${escapeHtml(data.corrected)}" data-lang="en" title="Phát âm">🔊 Nghe</button>
+          <button class="ai-copy-all-btn" data-text="${escapeHtml(data.corrected)}" title="Copy">📋 Copy</button>
+        </div>
+        ${changed ? issuesHtml : '<div class="ai-rw-note">👍 Câu đã khá ổn, không cần sửa nhiều.</div>'}
+      </div>
+    `;
+    wireActionBar(body);
   }
 
   /**
