@@ -198,6 +198,12 @@ Text:
 {text}`;
 
 // ============================================
+// Follow-up "ask the tutor" about a looked-up word/sentence
+// ============================================
+
+export const ASK_SYSTEM_PROMPT = `Bạn là gia sư tiếng Anh thân thiện cho người Việt. Học viên đang xem một từ/câu tiếng Anh và hỏi thêm về nó. Trả lời NGẮN GỌN, rõ ràng, chủ yếu bằng TIẾNG VIỆT, kèm ví dụ tiếng Anh khi hữu ích. Đi thẳng vào câu hỏi, không lan man, không markdown rườm rà.`;
+
+// ============================================
 // Reading helper — summarize an article + surface key vocabulary
 // ============================================
 

@@ -585,6 +585,78 @@
 }
 
 /* ============================================
+   Follow-up "ask the tutor" box in the bubble
+   ============================================ */
+.ai-followup {
+  margin-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 8px;
+}
+.ai-fu-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 6px;
+}
+.ai-fu-log:empty { display: none; }
+.ai-fu-msg {
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 6px 9px;
+  border-radius: 9px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ai-fu-msg.user {
+  align-self: flex-end;
+  background: rgba(99, 102, 241, 0.28);
+  color: #e8ebff;
+  max-width: 85%;
+}
+.ai-fu-msg.assistant {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  max-width: 92%;
+}
+.ai-fu-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.ai-fu-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  outline: none;
+  font-family: Inter, system-ui, sans-serif;
+}
+.ai-fu-input::placeholder { color: #94a3b8; }
+.ai-fu-input:focus { border-color: rgba(99, 102, 241, 0.7); }
+.ai-fu-send {
+  all: unset;
+  cursor: pointer;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 13px;
+}
+.ai-fu-send:hover { filter: brightness(1.1); }
+
+/* ============================================
    Highlight hard words
    ============================================ */
 .ai-hw {

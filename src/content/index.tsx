@@ -646,6 +646,60 @@ function initContentScript() {
     );
   }
 
+  /** Append a follow-up "ask the tutor" box to a bubble result container (keeps context). */
+  function attachFollowUp(scope: HTMLElement, context: string) {
+    const wrap = document.createElement('div');
+    wrap.className = 'ai-followup';
+    wrap.innerHTML = `
+      <div class="ai-fu-log"></div>
+      <div class="ai-fu-row">
+        <input class="ai-fu-input" type="text" placeholder="💬 Hỏi thêm về câu/từ này…" />
+        <button class="ai-fu-send" title="Gửi">➤</button>
+      </div>
+    `;
+    scope.appendChild(wrap);
+    const log = wrap.querySelector('.ai-fu-log') as HTMLElement;
+    const input = wrap.querySelector('.ai-fu-input') as HTMLInputElement;
+    const history: { role: 'user' | 'assistant'; text: string }[] = [];
+
+    const addMsg = (role: 'user' | 'assistant', text: string): HTMLElement => {
+      const el = document.createElement('div');
+      el.className = `ai-fu-msg ${role}`;
+      el.textContent = text;
+      log.appendChild(el);
+      log.scrollTop = log.scrollHeight;
+      return el;
+    };
+
+    let busy = false;
+    const ask = async () => {
+      const q = input.value.trim();
+      if (!q || busy) return;
+      busy = true;
+      input.value = '';
+      addMsg('user', q);
+      const priorHistory = history.slice();
+      history.push({ role: 'user', text: q });
+      const answerEl = addMsg('assistant', '…');
+      try {
+        const res = await chrome.runtime.sendMessage({ type: 'ASK_FOLLOWUP', payload: { context, question: q, history: priorHistory } });
+        const ans = res?.success ? res.data?.answer || '' : res?.error || 'Không trả lời được.';
+        answerEl.textContent = ans;
+        if (res?.success) history.push({ role: 'assistant', text: ans });
+      } catch {
+        answerEl.textContent = 'Lỗi kết nối.';
+      }
+      busy = false;
+    };
+    wrap.querySelector('.ai-fu-send')?.addEventListener('click', ask);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        ask();
+      }
+    });
+  }
+
   /**
    * Make the bubble draggable. Uses its header as the drag handle.
    * Switches to position: fixed during/after drag so it stays put while scrolling.
@@ -795,6 +849,8 @@ function initContentScript() {
       `;
       wireActionBar(body);
       attachVocabSave(body, parseDictCard(raw, originalText));
+      const dictContainer = body.querySelector('.ai-translator-bubble-result-container') as HTMLElement | null;
+      if (dictContainer) attachFollowUp(dictContainer, originalText);
 
       // Illustrative image for the looked-up word (free, Openverse).
       if (detectLang(originalText) === 'en') {
@@ -849,6 +905,8 @@ function initContentScript() {
       context: '',
       sourceUrl: location.href,
     });
+    const container = body.querySelector('.ai-translator-bubble-result-container') as HTMLElement | null;
+    if (container) attachFollowUp(container, originalText);
   }
 
   /** Wire the "Song ngữ" / "Ghi đè" buttons in the bubble to translate the selected block(s) in place. */
