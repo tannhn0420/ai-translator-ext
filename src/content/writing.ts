@@ -74,6 +74,12 @@ function winOf(el: HTMLElement): Window & typeof globalThis {
   return (el.ownerDocument.defaultView || window) as Window & typeof globalThis;
 }
 
+/** True if there's an active (non-collapsed) page text selection in this document. */
+function hasSelection(doc: Document): boolean {
+  const s = doc.defaultView?.getSelection?.();
+  return !!(s && !s.isCollapsed && s.toString().trim().length > 0);
+}
+
 function isTextInput(el: HTMLElement): boolean {
   const win = winOf(el);
   return el instanceof win.HTMLTextAreaElement || el instanceof win.HTMLInputElement;
@@ -139,6 +145,7 @@ function attachDoc(doc: Document | null | undefined): void {
   attachedDocs.add(doc);
   doc.addEventListener('focusin', onFocusIn, true);
   doc.addEventListener('focusout', onFocusOut, true);
+  doc.addEventListener('selectionchange', onSelectionChange);
   const win = doc.defaultView;
   if (win) {
     win.addEventListener('scroll', positionButton, true);
@@ -193,8 +200,16 @@ function onFocusIn(e: FocusEvent): void {
   if (!isEditableField(target)) return;
   currentField = resolveField(target as HTMLElement);
   currentDoc = currentField.ownerDocument;
-  console.debug('[AI Translator] writing: editable field detected', currentField.tagName, currentDoc === document ? '(top)' : '(iframe)');
+  // While the user is selecting page text, the selection icon (Dịch / Viết lại) owns the
+  // corner — don't also float the ✍️ button, or two icons show at once.
+  if (hasSelection(currentDoc)) return;
   showButton();
+}
+
+/** Hide the floating button once a text selection appears (the selection icon takes over). */
+function onSelectionChange(): void {
+  if (!btn || btn.style.display === 'none') return;
+  if (hasSelection(btn.ownerDocument)) hideButton();
 }
 
 function onFocusOut(): void {
