@@ -52,6 +52,26 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter,
 .dc-help, .dc-tip { color: var(--muted); font-size: 13.5px; line-height: 1.55; }
 
 .dc-setup { display: flex; flex-direction: column; gap: 14px; }
+.dc-gen {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.dc-gen-title { font-size: 13.5px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+.dc-gen-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.dc-gen-row .dc-url { flex: 1 1 180px; }
+.dc-select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 13.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.dc-or { text-align: center; color: var(--muted); font-size: 12.5px; }
 .dc-url-row { display: flex; gap: 8px; }
 .dc-url {
   flex: 1;

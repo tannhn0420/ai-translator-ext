@@ -198,6 +198,12 @@ Text:
 {text}`;
 
 // ============================================
+// Generate a short reading passage (for dictation practice)
+// ============================================
+
+export const PASSAGE_SYSTEM_PROMPT = `You write short, natural English reading passages for language learners. Output ONLY the passage text — no title, no headings, no markdown, no notes, no quotation marks around it.`;
+
+// ============================================
 // Follow-up "ask the tutor" about a looked-up word/sentence
 // ============================================
 

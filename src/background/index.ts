@@ -50,6 +50,7 @@ import {
   SUMMARIZE_SYSTEM_PROMPT,
   SUMMARIZE_TEMPLATE,
   ASK_SYSTEM_PROMPT,
+  PASSAGE_SYSTEM_PROMPT,
   INPLACE_TRANSLATION_TEMPLATE,
   CONTEXT_TRANSLATION_TEMPLATE,
   DICTIONARY_TEMPLATE,
@@ -235,6 +236,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
 
     case 'FETCH_ARTICLE':
       return await handleFetchArticle(message as any);
+
+    case 'GENERATE_PASSAGE':
+      return await handleGeneratePassage(message as any);
 
     case 'TRANSLATE_INPLACE':
       return await handleInplaceTranslate(message as any);
@@ -660,6 +664,42 @@ async function handleSummarize(request: any): Promise<any> {
     return { success: false, error: 'Không tóm tắt được, thử lại nhé.' };
   }
   return { success: true, data: { summary, keywords } };
+}
+
+/** Generate a short, self-contained English reading passage for dictation. */
+async function handleGeneratePassage(request: any): Promise<any> {
+  const settings = await getSettings();
+  const topic: string = (request.payload?.topic || '').toString().trim().slice(0, 100);
+  const level: string = request.payload?.level || 'intermediate';
+  const words = Math.min(250, Math.max(60, Number(request.payload?.words) || 150));
+
+  const providers = buildProviderList(settings);
+  if (!providers.some((p) => p.key)) {
+    return { success: false, error: 'Chưa cấu hình API Key hoặc Provider không hợp lệ.' };
+  }
+
+  const userText =
+    `Write a coherent, self-contained English passage of about ${words} words` +
+    (topic ? ` about "${topic}"` : ' on an interesting everyday or general-knowledge topic of your choice') +
+    `. Learner level: ${level}. Use natural prose in 2-4 short paragraphs, good for reading aloud and for dictation. ` +
+    `Output ONLY the passage text — no title, no markdown, no notes.`;
+
+  let raw = '';
+  let lastError: Error | null = null;
+  for (const p of providers) {
+    if (!p.key) continue;
+    try {
+      await pace();
+      raw = await callProvider(p, userText, 'auto', 'en', PASSAGE_SYSTEM_PROMPT, '{text}', 1024);
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err as Error;
+    }
+  }
+  if (!raw.trim()) return { success: false, error: lastError?.message || 'Không tạo được bài.' };
+  const passage = raw.trim().replace(/^["“'']+|["”'']+$/g, '').trim();
+  return { success: true, data: { passage } };
 }
 
 /** Fetch a web article's raw HTML (the dictation page extracts readable text from it). */

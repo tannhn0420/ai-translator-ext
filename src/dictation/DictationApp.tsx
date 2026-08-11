@@ -11,18 +11,50 @@ function isTypeable(c: string): boolean {
   return /[A-Za-z0-9]/.test(c);
 }
 
-/** Extract readable article text from fetched HTML (prefers <article>/<main>, then paragraphs). */
+/** Extract readable article text from fetched HTML: pick the container with the most
+ *  paragraph text (a lightweight readability heuristic), then join its paragraphs. */
 function extractArticleFromHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const root = doc.querySelector('article') || doc.querySelector('main') || doc.body;
-  if (!root) return '';
-  root.querySelectorAll('script,style,noscript,iframe,svg,nav,header,footer,aside,form,button,figure,figcaption').forEach((e) => e.remove());
-  const paras = Array.from(root.querySelectorAll('p'))
+  doc.querySelectorAll('script,style,noscript,iframe,svg,nav,header,footer,aside,form,button,figure,figcaption').forEach((e) => e.remove());
+
+  const paraLen = (el: Element) => {
+    let sum = 0;
+    el.querySelectorAll('p').forEach((p) => {
+      const t = (p.textContent || '').trim();
+      if (t.length >= 30) sum += t.length;
+    });
+    return sum;
+  };
+
+  // Score plausible content containers; keep the densest.
+  let best: Element = doc.body;
+  let bestScore = paraLen(doc.body);
+  doc.querySelectorAll('article, main, [role="main"], section, div').forEach((el) => {
+    if (el.querySelectorAll('p').length < 2) return;
+    const s = paraLen(el);
+    if (s > bestScore) {
+      bestScore = s;
+      best = el;
+    }
+  });
+
+  const paras = Array.from(best.querySelectorAll('p'))
     .map((p) => (p.textContent || '').trim())
-    .filter((t) => t.length > 40);
-  const text = paras.length >= 3 ? paras.join('\n\n') : (root.textContent || '');
+    .filter((t) => t.length >= 30);
+  const text = paras.length ? paras.join('\n\n') : (best.textContent || '');
   return text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 }
+
+const RANDOM_TOPICS = [
+  'a surprising animal fact', 'daily life in a big city', 'how coffee is made',
+  'the history of the internet', 'healthy eating habits', 'a famous invention',
+  'space exploration', 'learning a new language', 'the benefits of walking',
+  'how the weather works', 'a memorable trip', 'the importance of sleep',
+  'renewable energy', 'the life of bees', 'ancient Egypt', 'how music affects mood',
+  'the ocean and its creatures', 'volunteering in the community', 'the future of cars',
+  'a traditional festival', 'why we dream', 'the story of chocolate',
+  'staying focused while studying', 'famous landmarks around the world',
+];
 
 // ---- Letter-by-letter dictation of ONE sentence ----
 
@@ -126,6 +158,10 @@ export default function DictationApp() {
   const [url, setUrl] = useState('');
   const [fetching, setFetching] = useState(false);
   const [msg, setMsg] = useState('');
+  const [genTopic, setGenTopic] = useState('');
+  const [genLevel, setGenLevel] = useState('intermediate');
+  const [genWords, setGenWords] = useState(150);
+  const [generating, setGenerating] = useState(false);
   const [sentences, setSentences] = useState<string[]>([]);
   const [idx, setIdx] = useState(0);
   const [started, setStarted] = useState(false);
@@ -220,6 +256,25 @@ export default function DictationApp() {
     void ensureVi(i);
   }
 
+  async function generatePassage() {
+    setGenerating(true);
+    setMsg('');
+    const topic = genTopic.trim() || RANDOM_TOPICS[Math.floor(Math.random() * RANDOM_TOPICS.length)];
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'GENERATE_PASSAGE', payload: { topic, level: genLevel, words: genWords } });
+      if (!res?.success || !res.data?.passage) {
+        setMsg(res?.error || 'Không tạo được bài.');
+      } else {
+        setRaw(res.data.passage);
+        const wc = res.data.passage.split(/\s+/).filter(Boolean).length;
+        setMsg(`Đã tạo bài ~${wc} từ (chủ đề: ${topic}). Xem lại rồi bấm Bắt đầu.`);
+      }
+    } catch {
+      setMsg('Lỗi khi tạo bài.');
+    }
+    setGenerating(false);
+  }
+
   async function fetchArticle() {
     const u = url.trim();
     if (!/^https?:\/\//i.test(u)) { setMsg('URL phải bắt đầu bằng http:// hoặc https://'); return; }
@@ -268,6 +323,34 @@ export default function DictationApp() {
             Lấy bài từ <b>link</b>, hoặc dán <b>đoạn văn</b> / <b>phụ đề</b> (SRT / VTT / transcript) — timestamp tự bỏ.
             Nghe từng câu rồi gõ lại; mỗi chữ cái kiểm tra ngay (gõ sai ✗, gõ đúng lộ dần từng chữ). Nghĩa tiếng Việt của câu hiện sẵn để dễ đoán.
           </p>
+          <div className="dc-gen">
+            <div className="dc-gen-title">🎲 Để AI tạo một bài hoàn chỉnh</div>
+            <div className="dc-gen-row">
+              <input
+                className="dc-url"
+                value={genTopic}
+                onChange={(e) => setGenTopic(e.target.value)}
+                placeholder="Chủ đề (để trống = ngẫu nhiên)"
+                onKeyDown={(e) => { if (e.key === 'Enter') generatePassage(); }}
+              />
+              <select className="dc-select" value={genLevel} onChange={(e) => setGenLevel(e.target.value)}>
+                <option value="beginner">Cơ bản</option>
+                <option value="intermediate">Trung cấp</option>
+                <option value="advanced">Nâng cao</option>
+              </select>
+              <select className="dc-select" value={genWords} onChange={(e) => setGenWords(Number(e.target.value))}>
+                <option value={100}>~100 từ</option>
+                <option value={150}>~150 từ</option>
+                <option value={200}>~200 từ</option>
+              </select>
+              <button className="dc-btn primary" onClick={generatePassage} disabled={generating}>
+                {generating ? 'Đang tạo…' : '🎲 Tạo bài'}
+              </button>
+            </div>
+          </div>
+
+          <div className="dc-or">— hoặc —</div>
+
           <div className="dc-url-row">
             <input
               className="dc-url"
