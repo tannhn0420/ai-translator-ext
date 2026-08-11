@@ -52,6 +52,37 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter,
 .dc-help, .dc-tip { color: var(--muted); font-size: 13.5px; line-height: 1.55; }
 
 .dc-setup { display: flex; flex-direction: column; gap: 14px; }
+.dc-url-row { display: flex; gap: 8px; }
+.dc-url {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  outline: none;
+  font-family: inherit;
+}
+.dc-url:focus { border-color: var(--indigo); }
+.dc-msg {
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.dc-vi {
+  font-size: 14.5px;
+  color: var(--muted);
+  background: var(--card);
+  border-left: 3px solid var(--emerald);
+  border-radius: 6px;
+  padding: 8px 12px;
+  line-height: 1.5;
+}
 .dc-input {
   width: 100%;
   background: var(--panel);

@@ -233,6 +233,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
     case 'ASK_FOLLOWUP':
       return await handleAsk(message as any);
 
+    case 'FETCH_ARTICLE':
+      return await handleFetchArticle(message as any);
+
     case 'TRANSLATE_INPLACE':
       return await handleInplaceTranslate(message as any);
 
@@ -657,6 +660,25 @@ async function handleSummarize(request: any): Promise<any> {
     return { success: false, error: 'Không tóm tắt được, thử lại nhé.' };
   }
   return { success: true, data: { summary, keywords } };
+}
+
+/** Fetch a web article's raw HTML (the dictation page extracts readable text from it). */
+async function handleFetchArticle(request: any): Promise<any> {
+  const url: string = (request.payload?.url || '').toString().trim();
+  if (!/^https?:\/\//i.test(url)) return { success: false, error: 'URL không hợp lệ (phải bắt đầu bằng http/https).' };
+  try {
+    const res = await fetch(url, { headers: { Accept: 'text/html,application/xhtml+xml' } });
+    if (!res.ok) return { success: false, error: `Không tải được trang (HTTP ${res.status}).` };
+    const ctype = res.headers.get('content-type') || '';
+    if (!/text\/html|application\/xhtml|text\/plain|xml/i.test(ctype)) {
+      return { success: false, error: 'Trang này không phải văn bản HTML.' };
+    }
+    let html = await res.text();
+    if (html.length > 900_000) html = html.slice(0, 900_000);
+    return { success: true, data: { html } };
+  } catch {
+    return { success: false, error: 'Không tải được trang (mạng/CORS/hoặc trang chặn).' };
+  }
 }
 
 /** Answer a learner's follow-up question about the word/sentence they looked up. */

@@ -11,6 +11,19 @@ function isTypeable(c: string): boolean {
   return /[A-Za-z0-9]/.test(c);
 }
 
+/** Extract readable article text from fetched HTML (prefers <article>/<main>, then paragraphs). */
+function extractArticleFromHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const root = doc.querySelector('article') || doc.querySelector('main') || doc.body;
+  if (!root) return '';
+  root.querySelectorAll('script,style,noscript,iframe,svg,nav,header,footer,aside,form,button,figure,figcaption').forEach((e) => e.remove());
+  const paras = Array.from(root.querySelectorAll('p'))
+    .map((p) => (p.textContent || '').trim())
+    .filter((t) => t.length > 40);
+  const text = paras.length >= 3 ? paras.join('\n\n') : (root.textContent || '');
+  return text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 // ---- Letter-by-letter dictation of ONE sentence ----
 
 function LetterDictation({
@@ -110,12 +123,17 @@ function LetterDictation({
 
 export default function DictationApp() {
   const [raw, setRaw] = useState('');
+  const [url, setUrl] = useState('');
+  const [fetching, setFetching] = useState(false);
+  const [msg, setMsg] = useState('');
   const [sentences, setSentences] = useState<string[]>([]);
   const [idx, setIdx] = useState(0);
   const [started, setStarted] = useState(false);
   const [reveal, setReveal] = useState(0);
   const [errorsByIdx, setErrorsByIdx] = useState<Record<number, number>>({});
   const [doneByIdx, setDoneByIdx] = useState<Record<number, boolean>>({});
+  const [viByIdx, setViByIdx] = useState<Record<number, string>>({});
+  const sentencesRef = useRef<string[]>([]);
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const ttsRef = useRef({ en: '', rate: 0.95 });
@@ -161,16 +179,37 @@ export default function DictationApp() {
     window.speechSynthesis.speak(u);
   }
 
+  /** Translate one sentence to Vietnamese (cached) so its meaning can be shown while typing. */
+  async function ensureVi(i: number) {
+    const list = sentencesRef.current;
+    if (!list[i] || viByIdx[i] !== undefined) return;
+    setViByIdx((m) => ({ ...m, [i]: '…' }));
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: { items: [{ i: 0, text: list[i] }], targetLang: 'vi' } });
+      const vi = res?.data?.[0] || '';
+      setViByIdx((m) => ({ ...m, [i]: vi || '(chưa dịch được)' }));
+    } catch {
+      setViByIdx((m) => ({ ...m, [i]: '(lỗi dịch)' }));
+    }
+  }
+
   function start() {
     const list = splitSentences(parseSource(raw));
-    if (list.length === 0) return;
+    if (list.length === 0) {
+      setMsg('Không tách được câu nào — hãy kiểm tra nội dung.');
+      return;
+    }
+    sentencesRef.current = list;
     setSentences(list);
     setIdx(0);
     setStarted(true);
     setReveal(0);
     setErrorsByIdx({});
     setDoneByIdx({});
+    setViByIdx({});
+    setMsg('');
     setTimeout(() => speak(list[0]), 250);
+    void ensureVi(0);
   }
 
   function goto(i: number) {
@@ -178,6 +217,27 @@ export default function DictationApp() {
     setIdx(i);
     setReveal(0);
     setTimeout(() => speak(sentences[i]), 150);
+    void ensureVi(i);
+  }
+
+  async function fetchArticle() {
+    const u = url.trim();
+    if (!/^https?:\/\//i.test(u)) { setMsg('URL phải bắt đầu bằng http:// hoặc https://'); return; }
+    setFetching(true);
+    setMsg('');
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'FETCH_ARTICLE', payload: { url: u } });
+      if (!res?.success || !res.data?.html) {
+        setMsg(res?.error || 'Không lấy được bài.');
+      } else {
+        const text = extractArticleFromHtml(res.data.html);
+        if (text.length < 60) setMsg('Lấy được trang nhưng không tìm thấy nội dung bài (trang có thể dùng JS render).');
+        else { setRaw(text); setMsg(`Đã lấy ~${text.length} ký tự. Xem lại rồi bấm Bắt đầu.`); }
+      }
+    } catch {
+      setMsg('Lỗi khi lấy bài.');
+    }
+    setFetching(false);
   }
 
   function toggleTheme() {
@@ -205,16 +265,29 @@ export default function DictationApp() {
       {!started ? (
         <section className="dc-setup">
           <p className="dc-help">
-            Dán <b>đoạn văn</b>, hoặc <b>phụ đề</b> video (SRT / VTT / transcript YouTube) — timestamp sẽ tự được bỏ.
-            Nghe từng câu rồi gõ lại; mỗi chữ cái được kiểm tra ngay: gõ sai hiện ✗, gõ đúng thì lộ dần từng chữ.
+            Lấy bài từ <b>link</b>, hoặc dán <b>đoạn văn</b> / <b>phụ đề</b> (SRT / VTT / transcript) — timestamp tự bỏ.
+            Nghe từng câu rồi gõ lại; mỗi chữ cái kiểm tra ngay (gõ sai ✗, gõ đúng lộ dần từng chữ). Nghĩa tiếng Việt của câu hiện sẵn để dễ đoán.
           </p>
+          <div className="dc-url-row">
+            <input
+              className="dc-url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="Dán link bài báo (https://…) rồi bấm Lấy bài"
+              onKeyDown={(e) => { if (e.key === 'Enter') fetchArticle(); }}
+            />
+            <button className="dc-btn ghost" onClick={fetchArticle} disabled={fetching || !url.trim()}>
+              {fetching ? 'Đang lấy…' : '🌐 Lấy bài'}
+            </button>
+          </div>
           <textarea
             className="dc-input"
             value={raw}
             onChange={(e) => setRaw(e.target.value)}
-            placeholder="Dán đoạn văn hoặc phụ đề vào đây…"
-            rows={10}
+            placeholder="…hoặc dán đoạn văn / phụ đề vào đây."
+            rows={9}
           />
+          {msg && <div className="dc-msg">{msg}</div>}
           <button className="dc-btn primary" onClick={start} disabled={!raw.trim()}>🎧 Bắt đầu</button>
         </section>
       ) : completed === total ? (
@@ -237,6 +310,10 @@ export default function DictationApp() {
             <button className="dc-btn primary" onClick={() => speak(sentences[idx])}>🔊 Nghe</button>
             <button className="dc-btn ghost" onClick={() => speak(sentences[idx], 0.6)}>🐢 Chậm</button>
             <button className="dc-btn ghost" onClick={() => setReveal((r) => r + 1)} title="Hiện đáp án câu này">👁️ Hiện đáp án</button>
+          </div>
+
+          <div className="dc-vi" title="Nghĩa tiếng Việt của câu (gợi ý)">
+            🇻🇳 {viByIdx[idx] || '…'}
           </div>
 
           <LetterDictation
