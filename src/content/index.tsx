@@ -8,6 +8,7 @@ import { handleTranslatePage } from './pageTranslate/controller';
 import { translateSelection } from './pageTranslate/selection';
 import { initWritingAssistant } from './writing';
 import { initHighlight, toggleHighlight } from './highlight';
+import { recognizeOnce, scoreSpeech, isSpeechRecognitionSupported } from '../practice/speech';
 import { reviewCard } from '../utils/srs';
 
 // Avoid re-injection
@@ -69,6 +70,8 @@ function initContentScript() {
 
   const VI_RE = /[àáãạảăắằẳẵặâấầẩẫậèéẹẻẽêềếểễệđìíĩỉịòóõọỏôốồổỗộơớờởỡợùúũụủưứừửữựỳýỵỷỹ]/i;
   const detectLang = (s: string): Language => (VI_RE.test(s) ? 'vi' : 'en');
+
+  const SR_SUPPORTED = isSpeechRecognitionSupported();
 
   // Cloned selection range for in-place selection translation (survives selection collapse).
   let currentSelectionRange: Range | null = null;
@@ -404,6 +407,7 @@ function initContentScript() {
     removeBubble();
     removeIcon();
 
+    const isEnglish = detectLang(text) === 'en';
     iconNode = document.createElement('div');
     iconNode.id = 'ai-translator-icon';
     iconNode.innerHTML = `
@@ -411,6 +415,7 @@ function initContentScript() {
       <div class="ai-tr-menu">
         <button class="ai-tr-opt" data-act="translate">🌐 Dịch</button>
         <button class="ai-tr-opt" data-act="rewrite">✨ Viết lại</button>
+        ${isEnglish ? '<button class="ai-tr-opt" data-act="practice">🎤 Luyện câu</button>' : ''}
       </div>
     `;
 
@@ -427,6 +432,7 @@ function initContentScript() {
         const act = (b as HTMLElement).dataset.act;
         removeIcon();
         if (act === 'rewrite') showRewriteBubble(rect, text);
+        else if (act === 'practice') showPracticeBubble(rect, text);
         else showTranslationBubble(rect, text, context);
       }),
     );
@@ -554,6 +560,90 @@ function initContentScript() {
       </div>
     `;
     wireActionBar(body);
+  }
+
+  /** Practice a selected English sentence: pronunciation (speak → score) or dictation (listen → type). */
+  function showPracticeBubble(rect: DOMRect, text: string) {
+    createBubble(rect, '🎤', 'Luyện câu', '…');
+    const body = bubble?.querySelector('.ai-translator-bubble-body') as HTMLElement | null;
+    if (!body) return;
+    const sent = text.trim().replace(/\s+/g, ' ');
+    let mode: 'speak' | 'dictation' = 'speak';
+
+    const scoreHtml = (score: number, tokens: { w: string; ok: boolean }[]) =>
+      `<div class="ai-pr-score ${score >= 70 ? 'good' : 'low'}">${score}%</div>` +
+      `<div class="ai-pr-tokens">${tokens.map((t) => `<span class="${t.ok ? 'ok' : 'miss'}">${escapeHtml(t.w)}</span>`).join(' ')}</div>`;
+
+    const renderSpeak = (pb: HTMLElement) => {
+      pb.innerHTML = `
+        <div class="ai-pr-sent">${escapeHtml(sent)}</div>
+        <div class="ai-action-bar">
+          <button class="ai-tts-btn" data-text="${escapeHtml(sent)}" data-lang="en" title="Nghe mẫu">🔊 Nghe mẫu</button>
+          <button class="ai-pr-mic"${SR_SUPPORTED ? '' : ' disabled'} title="${SR_SUPPORTED ? 'Nói lại câu này' : 'Trình duyệt không hỗ trợ nhận diện giọng nói'}">🎤 Nói</button>
+        </div>
+        <div class="ai-pr-result"></div>
+      `;
+      wireActionBar(pb);
+      const mic = pb.querySelector('.ai-pr-mic') as HTMLButtonElement | null;
+      const result = pb.querySelector('.ai-pr-result') as HTMLElement;
+      mic?.addEventListener('click', async () => {
+        if (!SR_SUPPORTED) return;
+        mic.textContent = '● Đang nghe…';
+        mic.disabled = true;
+        result.textContent = '';
+        const { promise } = recognizeOnce('en-US', (p) => { result.textContent = p; });
+        let said = '';
+        try { said = await promise; } catch { /* no speech */ }
+        mic.textContent = '🎤 Nói lại';
+        mic.disabled = false;
+        if (!said.trim()) { result.innerHTML = '<div class="ai-pr-hint">Không nghe được — kiểm tra quyền micro.</div>'; return; }
+        const sc = scoreSpeech(sent, said);
+        result.innerHTML = scoreHtml(sc.score, sc.tokens);
+      });
+    };
+
+    const renderDictation = (pb: HTMLElement) => {
+      pb.innerHTML = `
+        <div class="ai-pr-hint">🔊 Nghe rồi gõ lại câu (câu đang ẩn).</div>
+        <div class="ai-action-bar">
+          <button class="ai-tts-btn" data-text="${escapeHtml(sent)}" data-lang="en" title="Nghe lại">🔊 Nghe lại</button>
+        </div>
+        <textarea class="ai-pr-type" rows="2" placeholder="Gõ lại những gì bạn nghe…"></textarea>
+        <button class="ai-pr-check">Kiểm tra</button>
+        <div class="ai-pr-result"></div>
+      `;
+      wireActionBar(pb);
+      speak(sent, 'en'); // auto-play once on open
+      const ta = pb.querySelector('.ai-pr-type') as HTMLTextAreaElement;
+      const result = pb.querySelector('.ai-pr-result') as HTMLElement;
+      pb.querySelector('.ai-pr-check')?.addEventListener('click', () => {
+        const typed = ta.value.trim();
+        if (!typed) return;
+        const sc = scoreSpeech(sent, typed);
+        result.innerHTML = scoreHtml(sc.score, sc.tokens) + `<div class="ai-pr-target">Đáp án: ${escapeHtml(sent)}</div>`;
+      });
+    };
+
+    const mount = () => {
+      body.innerHTML = `
+        <div class="ai-pr-tabs">
+          <button class="ai-pr-tab ${mode === 'speak' ? 'on' : ''}" data-t="speak">🎤 Phát âm</button>
+          <button class="ai-pr-tab ${mode === 'dictation' ? 'on' : ''}" data-t="dictation">🎧 Chép chính tả</button>
+        </div>
+        <div class="ai-pr-panel"></div>
+      `;
+      body.querySelectorAll('.ai-pr-tab').forEach((b) =>
+        b.addEventListener('click', () => {
+          window.speechSynthesis?.cancel();
+          mode = (b as HTMLElement).dataset.t as 'speak' | 'dictation';
+          mount();
+        }),
+      );
+      const panel = body.querySelector('.ai-pr-panel') as HTMLElement;
+      if (mode === 'speak') renderSpeak(panel);
+      else renderDictation(panel);
+    };
+    mount();
   }
 
   /** Extract the main readable text of the page (article/main/body), minus noise + our UI. */
