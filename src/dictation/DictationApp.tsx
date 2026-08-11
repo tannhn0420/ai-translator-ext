@@ -373,6 +373,27 @@ export default function DictationApp() {
     chrome.storage.local.set({ dictationOpts: { showVi, allowReveal, hintFirst } }).catch(() => {});
   }, [showVi, allowReveal, hintFirst]);
 
+  // Keyboard shortcuts while doing the exercise.
+  useEffect(() => {
+    if (!started) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.ctrlKey || e.metaKey) speak(sentences[idx]);       // Ctrl/Cmd+Enter = replay
+        else if (e.shiftKey) goto(idx - 1);                       // Shift+Enter = previous
+        else goto(idx + 1);                                       // Enter = next
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        speak(sentences[idx], 0.6);                               // Tab = replay slowly
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, idx, sentences]);
+
   function deleteSession(id: string) {
     setSessionsList((prev) => {
       const next = prev.filter((s) => s.id !== id);
@@ -797,7 +818,9 @@ export default function DictationApp() {
             <button className="dc-btn ghost" onClick={() => goto(idx - 1)} disabled={idx === 0}>← Prev</button>
             <button className="dc-btn primary" onClick={() => goto(idx + 1)} disabled={idx >= total - 1}>Next →</button>
           </div>
-          <p className="dc-tip">Click the box and type. <b>Backspace</b> to fix · not case-sensitive · progress is saved automatically.</p>
+          <p className="dc-tip">
+            Type in the box · <b>Backspace</b> fix · <b>Enter</b> next · <b>Shift+Enter</b> prev · <b>Ctrl+Enter</b> replay · <b>Tab</b> replay slow · not case-sensitive · auto-saved.
+          </p>
         </section>
       )}
     </div>
