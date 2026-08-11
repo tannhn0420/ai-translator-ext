@@ -515,7 +515,7 @@ export default function DictationApp() {
       } else {
         setRaw(res.data.passage);
         const n = res.data.passage.split('\n').filter(Boolean).length;
-        setMsg(`Generated ${n} phrases for "${topic}". Review, then Start.`);
+        setMsg(`Generated a ${n}-line conversation for "${topic}". Review, then Start.`);
       }
     } catch {
       setMsg('Error while generating.');
@@ -641,7 +641,7 @@ export default function DictationApp() {
           </p>
 
           <div className="dc-gen">
-            <div className="dc-gen-title">🗣️ Common phrases by topic {generating && <span className="dc-dim">· generating…</span>}</div>
+            <div className="dc-gen-title">🗣️ Common conversations by topic {generating && <span className="dc-dim">· generating…</span>}</div>
             <div className="dc-gen-row" style={{ marginBottom: 10 }}>
               <select className="dc-select" value={commCat} onChange={(e) => setCommCat(Number(e.target.value))}>
                 {COMM_TOPICS.map((g, i) => <option key={i} value={i}>{g.group}</option>)}

@@ -157,7 +157,7 @@ body {
 }
 
 .dc-dim { color: var(--muted); font-weight: 400; font-size: 12px; }
-.dc-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.dc-chips { display: flex; flex-wrap: wrap; gap: 7px; max-height: 168px; overflow-y: auto; }
 .dc-chip {
   border: 1px solid var(--border);
   background: var(--panel);
@@ -216,6 +216,8 @@ body {
 .dc-type {
   position: relative;
   min-height: 96px;
+  max-width: 100%;
+  overflow-x: hidden;
   background: var(--panel);
   border: 2px solid var(--border);
   border-radius: 16px;
@@ -229,7 +231,8 @@ body {
 .dc-type.done { border-color: var(--emerald); }
 .dc-line {
   font-family: 'Roboto Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 25px; line-height: 2; letter-spacing: 1.5px; word-break: break-word;
+  font-size: 22px; line-height: 2; letter-spacing: 1px;
+  word-break: break-word; overflow-wrap: anywhere;
 }
 .dc-ch { white-space: pre; }
 .dc-ch.fill { color: var(--text); }

@@ -681,8 +681,10 @@ async function handleGeneratePassage(request: any): Promise<any> {
 
   const userText =
     mode === 'phrases'
-      ? `List about 12 common, natural English sentences that a person would actually SAY or WRITE in this situation: "${topic || 'everyday communication'}". Learner level: ${level}. ` +
-        `Put ONE sentence on each line. No numbering, no bullets, no headings, no extra commentary. Make them practical and varied (a mix of speaking and chat/email phrasing).`
+      ? `Write a short, natural everyday English conversation for this situation: "${topic || 'everyday communication'}". ` +
+        `About 8-10 short lines, alternating between two people having a realistic back-and-forth. ` +
+        `Mix statements, requests and responses — do NOT make every line a question. Use common, practical wording someone really says at work or in daily life. ` +
+        `Learner level: ${level}. Put ONE utterance on each line. No speaker labels, no numbering, no bullets, no quotation marks, no commentary.`
       : `Write a coherent, self-contained English passage of about ${words} words` +
         (topic ? ` about "${topic}"` : ' on an interesting everyday or general-knowledge topic of your choice') +
         `. Learner level: ${level}. Use natural prose in 2-4 short paragraphs, good for reading aloud and for dictation. ` +
