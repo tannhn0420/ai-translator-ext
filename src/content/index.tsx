@@ -1274,69 +1274,104 @@ function initContentScript() {
     }, min * 60 * 1000);
   }
 
+  /** Active-recall reminder: show the meaning, type the English word back (checked letter
+   *  by letter), then auto-mark it reviewed (SRS) and play a model pronunciation. */
   function showReminderToast(card: VocabCard) {
     const el = document.createElement('div');
     el.id = 'ai-translator-reminder';
     el.style.cssText = `
       position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
-      width: 300px; max-width: calc(100vw - 32px);
-      background: rgba(15,15,35,0.97); color: #e2e8f0; border: 1px solid rgba(99,102,241,0.4);
+      width: 320px; max-width: calc(100vw - 32px);
+      background: rgba(15,15,35,0.98); color: #e2e8f0; border: 1px solid rgba(99,102,241,0.4);
       border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);
       font-family: Inter, system-ui, sans-serif; padding: 14px 16px;
       animation: ai-translator-fadeIn 0.25s ease;
     `;
-    const ipa = card.ipa
-      ? ` <span style="color:#94a3b8;font-size:12px;">/${escapeHtml(card.ipa.replace(/^\/|\/$/g, ''))}/</span>`
-      : '';
-    const example = card.example
-      ? `<div style="color:#94a3b8;font-size:12px;font-style:italic;margin-top:6px;">"${escapeHtml(card.example)}"</div>`
-      : '';
-    const img = card.image
-      ? `<img src="${escapeHtml(card.image)}" alt="" style="max-width:100%;max-height:110px;border-radius:8px;margin-top:8px;display:block;">`
-      : '';
+    const term = card.term;
+    const ipaTxt = card.ipa ? `/${card.ipa.replace(/^\/|\/$/g, '')}/` : '';
     el.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="font-size:12px;color:#a5b4fc;">📇 Ôn từ vựng</span>
+        <span style="font-size:12px;color:#a5b4fc;">📝 Ôn từ — gõ lại từ tiếng Anh</span>
         <button class="rem-close" title="Ẩn" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">✕</button>
       </div>
-      <div style="font-size:18px;font-weight:700;">${escapeHtml(card.term)}${ipa}
-        <button class="rem-tts" title="Nghe" style="background:none;border:none;cursor:pointer;font-size:15px;margin-left:6px;">🔊</button>
-      </div>
-      <div style="color:#6ee7b7;font-size:14px;margin-top:4px;">${escapeHtml(card.meaning)}</div>
-      ${example}
-      ${img}
+      <div style="color:#6ee7b7;font-size:15px;line-height:1.4;">${escapeHtml(card.meaning)}</div>
+      ${ipaTxt ? `<div style="color:#94a3b8;font-size:12px;margin-top:3px;">${escapeHtml(ipaTxt)}</div>` : ''}
+      <div class="rem-type" tabindex="0" title="Bấm rồi gõ"
+        style="margin-top:10px;font-family:'Roboto Mono',ui-monospace,monospace;font-size:22px;letter-spacing:2px;white-space:pre-wrap;word-break:break-word;background:rgba(255,255,255,0.05);border:1px solid rgba(99,102,241,0.4);border-radius:8px;padding:10px 12px;outline:none;cursor:text;"></div>
+      <div class="rem-ex" style="color:#94a3b8;font-size:12px;font-style:italic;margin-top:8px;display:none;"></div>
       <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="rem-reveal" style="flex:1;padding:7px;border:1px solid rgba(99,102,241,0.4);border-radius:8px;background:transparent;color:#e2e8f0;font-size:13px;cursor:pointer;">👁️ Đáp án</button>
         <button class="rem-known" style="flex:1;padding:7px;border:none;border-radius:8px;background:rgba(16,185,129,0.9);color:#fff;font-size:13px;cursor:pointer;">✓ Đã thuộc</button>
-        <button class="rem-hide" style="flex:1;padding:7px;border:1px solid rgba(99,102,241,0.4);border-radius:8px;background:transparent;color:#e2e8f0;font-size:13px;cursor:pointer;">Ẩn</button>
       </div>
-      <div style="text-align:center;margin-top:8px;">
-        <button class="rem-practice" style="background:none;border:none;color:#a5b4fc;cursor:pointer;font-size:12px;">🎯 Luyện nói hôm nay →</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+        <button class="rem-tts" style="background:none;border:none;color:#a5b4fc;cursor:pointer;font-size:12px;">🔊 Nghe</button>
+        <button class="rem-practice" style="background:none;border:none;color:#a5b4fc;cursor:pointer;font-size:12px;">🎯 Luyện nói →</button>
       </div>
     `;
     document.body.appendChild(el);
 
-    const timer = setTimeout(() => el.remove(), 9000);
-    const dismiss = () => {
-      clearTimeout(timer);
-      el.remove();
-    };
+    const typeEl = el.querySelector('.rem-type') as HTMLElement;
+    const exEl = el.querySelector('.rem-ex') as HTMLElement;
+    const isT = (c: string) => /[A-Za-z0-9]/.test(c);
+    const skipAuto = (from: number) => { let i = from; while (i < term.length && !isT(term[i])) i++; return i; };
+    let pos = skipAuto(0);
+    let done = false;
 
-    el.querySelector('.rem-close')?.addEventListener('click', dismiss);
-    el.querySelector('.rem-hide')?.addEventListener('click', dismiss);
-    el.querySelector('.rem-tts')?.addEventListener('click', () => speak(card.term, card.lang));
-    el.querySelector('.rem-practice')?.addEventListener('click', () => {
-      dismiss();
-      chrome.runtime.sendMessage({ type: 'OPEN_PRACTICE' }).catch(() => {});
-    });
-    el.querySelector('.rem-known')?.addEventListener('click', async () => {
-      dismiss();
+    const render = () => {
+      let html = '';
+      for (let i = 0; i < term.length; i++) {
+        const c = term[i];
+        if (i < pos) html += `<span style="color:#e2e8f0;">${escapeHtml(c)}</span>`;
+        else if (!isT(c)) html += `<span style="color:#94a3b8;">${escapeHtml(c)}</span>`;
+        else html += `<span style="color:#6366f1;opacity:.55;">_</span>`;
+      }
+      typeEl.innerHTML = html || '_';
+    };
+    render();
+
+    const dismiss = () => el.remove();
+    const markReviewed = async () => {
       try {
         const updated = reviewCard(card, 'good', Date.now());
         await chrome.runtime.sendMessage({ type: 'UPDATE_VOCAB', payload: { card: updated } });
-      } catch {
-        // ignore
+      } catch { /* ignore */ }
+    };
+    const finish = () => {
+      if (done) return;
+      done = true;
+      typeEl.style.borderColor = 'rgba(16,185,129,0.7)';
+      if (card.example && exEl) { exEl.textContent = `"${card.example}"`; exEl.style.display = 'block'; }
+      speak(term, card.lang);
+      void markReviewed();
+    };
+
+    typeEl.addEventListener('keydown', (e) => {
+      if (done) return;
+      const k = e.key;
+      if (k === 'Backspace') {
+        e.preventDefault();
+        const start = skipAuto(0);
+        if (pos > start) { let j = pos - 1; while (j >= 0 && !isT(term[j])) j--; if (j >= start) pos = j; render(); }
+        return;
+      }
+      if (k.length !== 1 || !isT(k)) return;
+      e.preventDefault();
+      if (pos >= term.length) return;
+      if (k.toLowerCase() === term[pos].toLowerCase()) {
+        pos = skipAuto(pos + 1);
+        render();
+        if (pos >= term.length) finish();
+      } else {
+        typeEl.style.borderColor = 'rgba(239,68,68,0.85)';
+        setTimeout(() => { if (!done) typeEl.style.borderColor = 'rgba(99,102,241,0.4)'; }, 200);
       }
     });
+
+    el.querySelector('.rem-close')?.addEventListener('click', dismiss);
+    el.querySelector('.rem-tts')?.addEventListener('click', () => speak(term, card.lang));
+    el.querySelector('.rem-reveal')?.addEventListener('click', () => { pos = term.length; render(); finish(); });
+    el.querySelector('.rem-practice')?.addEventListener('click', () => { dismiss(); chrome.runtime.sendMessage({ type: 'OPEN_PRACTICE' }).catch(() => {}); });
+    el.querySelector('.rem-known')?.addEventListener('click', async () => { await markReviewed(); dismiss(); });
   }
 
   function removeBubble() {
