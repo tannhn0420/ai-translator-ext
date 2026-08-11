@@ -16,7 +16,6 @@ function isTypeable(c: string): boolean {
 function extractArticleFromHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   doc.querySelectorAll('script,style,noscript,iframe,svg,nav,header,footer,aside,form,button,figure,figcaption').forEach((e) => e.remove());
-
   const paraLen = (el: Element) => {
     let sum = 0;
     el.querySelectorAll('p').forEach((p) => {
@@ -25,8 +24,6 @@ function extractArticleFromHtml(html: string): string {
     });
     return sum;
   };
-
-  // Score plausible content containers; keep the densest.
   let best: Element = doc.body;
   let bestScore = paraLen(doc.body);
   doc.querySelectorAll('article, main, [role="main"], section, div').forEach((el) => {
@@ -37,7 +34,6 @@ function extractArticleFromHtml(html: string): string {
       best = el;
     }
   });
-
   const paras = Array.from(best.querySelectorAll('p'))
     .map((p) => (p.textContent || '').trim())
     .filter((t) => t.length >= 30);
@@ -56,6 +52,14 @@ const RANDOM_TOPICS = [
   'staying focused while studying', 'famous landmarks around the world',
 ];
 
+interface Session {
+  sentences: string[];
+  idx: number;
+  doneByIdx: Record<number, boolean>;
+  errorsByIdx: Record<number, number>;
+  viByIdx: Record<number, string>;
+}
+
 // ---- Letter-by-letter dictation of ONE sentence ----
 
 function LetterDictation({
@@ -64,7 +68,7 @@ function LetterDictation({
   onComplete,
 }: {
   target: string;
-  revealTick: number; // bump to reveal the whole answer
+  revealTick: number;
   onComplete: (errors: number) => void;
 }) {
   const skipAuto = (from: number) => {
@@ -78,7 +82,6 @@ function LetterDictation({
   const [done, setDone] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Reset when the sentence changes.
   useEffect(() => {
     const start = skipAuto(0);
     setPos(start);
@@ -94,7 +97,6 @@ function LetterDictation({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 
-  // Reveal-all button.
   useEffect(() => {
     if (revealTick > 0) {
       setPos(target.length);
@@ -134,18 +136,19 @@ function LetterDictation({
     }
   }
 
+  const typed = Math.max(0, [...target.slice(0, pos)].filter(isTypeable).length);
+  const totalGaps = [...target].filter(isTypeable).length;
+
   return (
-    <div
-      className={`dc-type ${err ? 'err' : ''} ${done ? 'done' : ''}`}
-      tabIndex={0}
-      ref={ref}
-      onKeyDown={onKey}
-    >
-      {target.split('').map((c, i) => {
-        if (i < pos) return <span key={i} className="dc-ch fill">{c === ' ' ? ' ' : c}</span>;
-        if (!isTypeable(c)) return <span key={i} className="dc-ch punc">{c === ' ' ? ' ' : c}</span>;
-        return <span key={i} className={`dc-ch gap ${i === pos && !done ? 'cur' : ''}`}>_</span>;
-      })}
+    <div className={`dc-type ${err ? 'err' : ''} ${done ? 'done' : ''}`} tabIndex={0} ref={ref} onKeyDown={onKey}>
+      <div className="dc-line">
+        {target.split('').map((c, i) => {
+          if (i < pos) return <span key={i} className="dc-ch fill">{c}</span>;
+          if (!isTypeable(c)) return <span key={i} className="dc-ch punc">{c}</span>;
+          return <span key={i} className={`dc-ch gap ${i === pos && !done ? 'cur' : ''}`}>_</span>;
+        })}
+      </div>
+      <div className="dc-mini">{done ? 'done' : `${typed}/${totalGaps}`}</div>
       {err && <span className="dc-x">✗</span>}
     </div>
   );
@@ -162,6 +165,7 @@ export default function DictationApp() {
   const [genLevel, setGenLevel] = useState('intermediate');
   const [genWords, setGenWords] = useState(150);
   const [generating, setGenerating] = useState(false);
+
   const [sentences, setSentences] = useState<string[]>([]);
   const [idx, setIdx] = useState(0);
   const [started, setStarted] = useState(false);
@@ -169,6 +173,7 @@ export default function DictationApp() {
   const [errorsByIdx, setErrorsByIdx] = useState<Record<number, number>>({});
   const [doneByIdx, setDoneByIdx] = useState<Record<number, boolean>>({});
   const [viByIdx, setViByIdx] = useState<Record<number, string>>({});
+  const [resume, setResume] = useState<Session | null>(null);
   const sentencesRef = useRef<string[]>([]);
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -189,12 +194,16 @@ export default function DictationApp() {
           document.documentElement.dataset.theme = th;
         }
       } catch { /* ignore */ }
-      // Prefill from a stored selection, if any (e.g. opened from the page).
       try {
-        const r = await chrome.storage.local.get({ dictationText: '' });
+        const r = await chrome.storage.local.get({ dictationText: '', dictationSession: null });
         if (r.dictationText) {
           setRaw(r.dictationText as string);
           await chrome.storage.local.set({ dictationText: '' });
+        }
+        const sess = r.dictationSession as Session | null;
+        if (sess && sess.sentences?.length) {
+          const allDone = sess.sentences.every((_, i) => sess.doneByIdx?.[i]);
+          if (!allDone) setResume(sess);
         }
       } catch { /* ignore */ }
     })();
@@ -203,6 +212,16 @@ export default function DictationApp() {
       window.speechSynthesis?.cancel();
     };
   }, []);
+
+  // Persist progress so the exercise can be resumed later (or in a pop-out window).
+  useEffect(() => {
+    if (!started || sentences.length === 0) return;
+    chrome.storage.local.set({ dictationSession: { sentences, idx, doneByIdx, errorsByIdx, viByIdx } }).catch(() => {});
+  }, [started, sentences, idx, doneByIdx, errorsByIdx, viByIdx]);
+
+  function clearSession() {
+    chrome.storage.local.remove('dictationSession').catch(() => {});
+  }
 
   function speak(text: string, rate?: number) {
     if (!('speechSynthesis' in window) || !text) return;
@@ -215,7 +234,6 @@ export default function DictationApp() {
     window.speechSynthesis.speak(u);
   }
 
-  /** Translate one sentence to Vietnamese (cached) so its meaning can be shown while typing. */
   async function ensureVi(i: number) {
     const list = sentencesRef.current;
     if (!list[i] || viByIdx[i] !== undefined) return;
@@ -223,18 +241,13 @@ export default function DictationApp() {
     try {
       const res = await chrome.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: { items: [{ i: 0, text: list[i] }], targetLang: 'vi' } });
       const vi = res?.data?.[0] || '';
-      setViByIdx((m) => ({ ...m, [i]: vi || '(chưa dịch được)' }));
+      setViByIdx((m) => ({ ...m, [i]: vi || '(no translation)' }));
     } catch {
-      setViByIdx((m) => ({ ...m, [i]: '(lỗi dịch)' }));
+      setViByIdx((m) => ({ ...m, [i]: '(translation error)' }));
     }
   }
 
-  function start() {
-    const list = splitSentences(parseSource(raw));
-    if (list.length === 0) {
-      setMsg('Không tách được câu nào — hãy kiểm tra nội dung.');
-      return;
-    }
+  function beginWith(list: string[]) {
     sentencesRef.current = list;
     setSentences(list);
     setIdx(0);
@@ -244,8 +257,33 @@ export default function DictationApp() {
     setDoneByIdx({});
     setViByIdx({});
     setMsg('');
+    setResume(null);
     setTimeout(() => speak(list[0]), 250);
     void ensureVi(0);
+  }
+
+  function start() {
+    const list = splitSentences(parseSource(raw));
+    if (list.length === 0) {
+      setMsg('No sentences found — check the text.');
+      return;
+    }
+    beginWith(list);
+  }
+
+  function doResume() {
+    if (!resume) return;
+    sentencesRef.current = resume.sentences;
+    setSentences(resume.sentences);
+    setIdx(resume.idx || 0);
+    setDoneByIdx(resume.doneByIdx || {});
+    setErrorsByIdx(resume.errorsByIdx || {});
+    setViByIdx(resume.viByIdx || {});
+    setStarted(true);
+    setReveal(0);
+    setResume(null);
+    setTimeout(() => speak(resume.sentences[resume.idx || 0]), 250);
+    void ensureVi(resume.idx || 0);
   }
 
   function goto(i: number) {
@@ -256,6 +294,21 @@ export default function DictationApp() {
     void ensureVi(i);
   }
 
+  function exitToSetup() {
+    // Progress is already saved; just leave the run view so it can be resumed.
+    window.speechSynthesis?.cancel();
+    setStarted(false);
+    setResume({ sentences, idx, doneByIdx, errorsByIdx, viByIdx });
+  }
+
+  function newText() {
+    window.speechSynthesis?.cancel();
+    clearSession();
+    setStarted(false);
+    setResume(null);
+    setSentences([]);
+  }
+
   async function generatePassage() {
     setGenerating(true);
     setMsg('');
@@ -263,34 +316,34 @@ export default function DictationApp() {
     try {
       const res = await chrome.runtime.sendMessage({ type: 'GENERATE_PASSAGE', payload: { topic, level: genLevel, words: genWords } });
       if (!res?.success || !res.data?.passage) {
-        setMsg(res?.error || 'Không tạo được bài.');
+        setMsg(res?.error || 'Could not generate a passage.');
       } else {
         setRaw(res.data.passage);
         const wc = res.data.passage.split(/\s+/).filter(Boolean).length;
-        setMsg(`Đã tạo bài ~${wc} từ (chủ đề: ${topic}). Xem lại rồi bấm Bắt đầu.`);
+        setMsg(`Generated ~${wc} words (topic: ${topic}). Review, then Start.`);
       }
     } catch {
-      setMsg('Lỗi khi tạo bài.');
+      setMsg('Error while generating.');
     }
     setGenerating(false);
   }
 
   async function fetchArticle() {
     const u = url.trim();
-    if (!/^https?:\/\//i.test(u)) { setMsg('URL phải bắt đầu bằng http:// hoặc https://'); return; }
+    if (!/^https?:\/\//i.test(u)) { setMsg('URL must start with http:// or https://'); return; }
     setFetching(true);
     setMsg('');
     try {
       const res = await chrome.runtime.sendMessage({ type: 'FETCH_ARTICLE', payload: { url: u } });
       if (!res?.success || !res.data?.html) {
-        setMsg(res?.error || 'Không lấy được bài.');
+        setMsg(res?.error || 'Could not fetch the page.');
       } else {
         const text = extractArticleFromHtml(res.data.html);
-        if (text.length < 60) setMsg('Lấy được trang nhưng không tìm thấy nội dung bài (trang có thể dùng JS render).');
-        else { setRaw(text); setMsg(`Đã lấy ~${text.length} ký tự. Xem lại rồi bấm Bắt đầu.`); }
+        if (text.length < 60) setMsg('Fetched the page but found little article text (it may be JS-rendered).');
+        else { setRaw(text); setMsg(`Fetched ~${text.length} characters. Review, then Start.`); }
       }
     } catch {
-      setMsg('Lỗi khi lấy bài.');
+      setMsg('Error while fetching.');
     }
     setFetching(false);
   }
@@ -302,101 +355,137 @@ export default function DictationApp() {
     chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { theme: next } }).catch(() => {});
   }
 
+  // Pop out the whole app into an always-on-top Document Picture-in-Picture window.
+  async function popOut() {
+    const rootEl = document.getElementById('root');
+    const dpip = (window as unknown as { documentPictureInPicture?: { requestWindow: (o: object) => Promise<Window> } }).documentPictureInPicture;
+    if (rootEl && dpip?.requestWindow) {
+      try {
+        const pip = await dpip.requestWindow({ width: 480, height: 660 });
+        document.querySelectorAll('link[rel="stylesheet"], style').forEach((n) => pip.document.head.appendChild(n.cloneNode(true)));
+        pip.document.documentElement.dataset.theme = theme;
+        pip.document.body.appendChild(rootEl);
+        pip.addEventListener('pagehide', () => {
+          document.body.appendChild(rootEl);
+        });
+        return;
+      } catch { /* fall through to a plain popup window */ }
+    }
+    window.open(location.href, '_blank', 'popup,width=520,height=700');
+  }
+
   const total = sentences.length;
   const completed = Object.values(doneByIdx).filter(Boolean).length;
   const totalErrors = Object.values(errorsByIdx).reduce((a, b) => a + b, 0);
+  const pct = total ? Math.round((completed / total) * 100) : 0;
 
   return (
     <div className="dc-app">
       <header className="dc-header">
         <span className="dc-logo">🎧</span>
-        <h1>Chép chính tả</h1>
+        <h1>Dictation</h1>
         <div className="dc-header-right">
-          {started && <button className="dc-btn ghost" onClick={() => { setStarted(false); window.speechSynthesis?.cancel(); }}>📝 Văn bản khác</button>}
-          <button className="dc-btn ghost" onClick={toggleTheme} title="Sáng/tối">{theme === 'dark' ? '☀️' : '🌙'}</button>
+          {started && <button className="dc-btn ghost sm" onClick={exitToSetup} title="Exit (progress is saved)">← Exit</button>}
+          <button className="dc-btn ghost sm" onClick={popOut} title="Open in a floating window (Picture-in-Picture)">⧉ Pop-out</button>
+          <button className="dc-btn ghost sm" onClick={toggleTheme} title="Light / dark">{theme === 'dark' ? '☀️' : '🌙'}</button>
         </div>
       </header>
 
       {!started ? (
         <section className="dc-setup">
+          {resume && (
+            <div className="dc-resume">
+              <div>
+                <b>Unfinished passage</b>
+                <div className="dc-resume-sub">Sentence {(resume.idx || 0) + 1} of {resume.sentences.length}</div>
+              </div>
+              <div className="dc-resume-actions">
+                <button className="dc-btn primary" onClick={doResume}>Resume</button>
+                <button className="dc-btn ghost" onClick={() => { clearSession(); setResume(null); }}>Discard</button>
+              </div>
+            </div>
+          )}
+
           <p className="dc-help">
-            Lấy bài từ <b>link</b>, hoặc dán <b>đoạn văn</b> / <b>phụ đề</b> (SRT / VTT / transcript) — timestamp tự bỏ.
-            Nghe từng câu rồi gõ lại; mỗi chữ cái kiểm tra ngay (gõ sai ✗, gõ đúng lộ dần từng chữ). Nghĩa tiếng Việt của câu hiện sẵn để dễ đoán.
+            Generate a passage with AI, fetch an article by link, or paste your own text / subtitles
+            (SRT / VTT / transcript — timestamps are removed). Listen to each sentence and type it back;
+            every letter is checked instantly. The Vietnamese meaning is shown to help you guess.
           </p>
+
           <div className="dc-gen">
-            <div className="dc-gen-title">🎲 Để AI tạo một bài hoàn chỉnh</div>
+            <div className="dc-gen-title">🎲 Let AI write a passage</div>
             <div className="dc-gen-row">
               <input
                 className="dc-url"
                 value={genTopic}
                 onChange={(e) => setGenTopic(e.target.value)}
-                placeholder="Chủ đề (để trống = ngẫu nhiên)"
+                placeholder="Topic (blank = random)"
                 onKeyDown={(e) => { if (e.key === 'Enter') generatePassage(); }}
               />
               <select className="dc-select" value={genLevel} onChange={(e) => setGenLevel(e.target.value)}>
-                <option value="beginner">Cơ bản</option>
-                <option value="intermediate">Trung cấp</option>
-                <option value="advanced">Nâng cao</option>
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
               </select>
               <select className="dc-select" value={genWords} onChange={(e) => setGenWords(Number(e.target.value))}>
-                <option value={100}>~100 từ</option>
-                <option value={150}>~150 từ</option>
-                <option value={200}>~200 từ</option>
+                <option value={100}>~100 words</option>
+                <option value={150}>~150 words</option>
+                <option value={200}>~200 words</option>
               </select>
               <button className="dc-btn primary" onClick={generatePassage} disabled={generating}>
-                {generating ? 'Đang tạo…' : '🎲 Tạo bài'}
+                {generating ? 'Generating…' : '🎲 Generate'}
               </button>
             </div>
           </div>
 
-          <div className="dc-or">— hoặc —</div>
+          <div className="dc-or"><span>or</span></div>
 
           <div className="dc-url-row">
             <input
               className="dc-url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="Dán link bài báo (https://…) rồi bấm Lấy bài"
+              placeholder="Paste an article link (https://…)"
               onKeyDown={(e) => { if (e.key === 'Enter') fetchArticle(); }}
             />
             <button className="dc-btn ghost" onClick={fetchArticle} disabled={fetching || !url.trim()}>
-              {fetching ? 'Đang lấy…' : '🌐 Lấy bài'}
+              {fetching ? 'Fetching…' : '🌐 Fetch'}
             </button>
           </div>
+
           <textarea
             className="dc-input"
             value={raw}
             onChange={(e) => setRaw(e.target.value)}
-            placeholder="…hoặc dán đoạn văn / phụ đề vào đây."
-            rows={9}
+            placeholder="…or paste a passage / subtitles here."
+            rows={8}
           />
           {msg && <div className="dc-msg">{msg}</div>}
-          <button className="dc-btn primary" onClick={start} disabled={!raw.trim()}>🎧 Bắt đầu</button>
+          <button className="dc-btn primary lg" onClick={start} disabled={!raw.trim()}>🎧 Start</button>
         </section>
       ) : completed === total ? (
         <section className="dc-done">
           <div className="dc-done-emoji">🏆</div>
-          <h2>Hoàn thành {total} câu!</h2>
-          <p>Tổng số lần gõ sai: <b>{totalErrors}</b></p>
+          <h2>Finished {total} sentences!</h2>
+          <p>Total mistakes: <b>{totalErrors}</b></p>
           <div className="dc-done-actions">
-            <button className="dc-btn primary" onClick={() => goto(0)}>Làm lại từ đầu</button>
-            <button className="dc-btn ghost" onClick={() => { setStarted(false); }}>Văn bản khác</button>
+            <button className="dc-btn primary" onClick={() => { clearSession(); goto(0); }}>Restart</button>
+            <button className="dc-btn ghost" onClick={newText}>New text</button>
           </div>
         </section>
       ) : (
         <section className="dc-run">
+          <div className="dc-bar"><div className="dc-bar-fill" style={{ width: `${pct}%` }} /></div>
           <div className="dc-progress">
-            Câu {idx + 1} / {total} · Đã xong {completed} · Gõ sai {totalErrors}
+            Sentence {idx + 1} / {total} · Done {completed} · Mistakes {totalErrors}
           </div>
+
+          <div className="dc-vi" title="Vietnamese meaning (hint)">🇻🇳 {viByIdx[idx] || '…'}</div>
 
           <div className="dc-audio">
-            <button className="dc-btn primary" onClick={() => speak(sentences[idx])}>🔊 Nghe</button>
-            <button className="dc-btn ghost" onClick={() => speak(sentences[idx], 0.6)}>🐢 Chậm</button>
-            <button className="dc-btn ghost" onClick={() => setReveal((r) => r + 1)} title="Hiện đáp án câu này">👁️ Hiện đáp án</button>
-          </div>
-
-          <div className="dc-vi" title="Nghĩa tiếng Việt của câu (gợi ý)">
-            🇻🇳 {viByIdx[idx] || '…'}
+            <button className="dc-btn primary" onClick={() => speak(sentences[idx])}>🔊 Play</button>
+            <button className="dc-btn ghost" onClick={() => speak(sentences[idx], 0.6)}>🐢 Slow</button>
+            <button className="dc-btn ghost" onClick={() => setReveal((r) => r + 1)} title="Reveal this sentence">👁️ Reveal</button>
           </div>
 
           <LetterDictation
@@ -409,13 +498,13 @@ export default function DictationApp() {
             }}
           />
 
-          {doneByIdx[idx] && <div className="dc-ok">✓ Đúng rồi!</div>}
+          {doneByIdx[idx] && <div className="dc-ok">✓ Correct!</div>}
 
           <div className="dc-nav">
-            <button className="dc-btn ghost" onClick={() => goto(idx - 1)} disabled={idx === 0}>← Câu trước</button>
-            <button className="dc-btn primary" onClick={() => goto(idx + 1)} disabled={idx >= total - 1}>Câu tiếp →</button>
+            <button className="dc-btn ghost" onClick={() => goto(idx - 1)} disabled={idx === 0}>← Prev</button>
+            <button className="dc-btn primary" onClick={() => goto(idx + 1)} disabled={idx >= total - 1}>Next →</button>
           </div>
-          <p className="dc-tip">Mẹo: bấm vào ô để gõ. <b>Backspace</b> để sửa. Gõ không phân biệt hoa/thường.</p>
+          <p className="dc-tip">Click the box and type. <b>Backspace</b> to fix · not case-sensitive · progress is saved automatically.</p>
         </section>
       )}
     </div>
