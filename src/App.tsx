@@ -320,6 +320,11 @@ function App() {
     window.close();
   };
 
+  const openDictation = () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/dictation/dictation.html') });
+    window.close();
+  };
+
   const toggleAutoTranslate = async () => {
     const newValue = !autoTranslate;
     setAutoTranslate(newValue);
@@ -371,6 +376,7 @@ function App() {
         <div className="popup-header-actions">
           <button className="header-btn" onClick={toggleTheme} title="Giao diện sáng/tối">{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="header-btn" onClick={openPractice} title="Luyện tập theo chủ đề">🎯</button>
+          <button className="header-btn" onClick={openDictation} title="Chép chính tả (đoạn văn / phụ đề)">🎧</button>
           <button className="header-btn" onClick={openFlashcards} title="Sổ từ vựng">📇</button>
           <button className="header-btn" onClick={openZenMode} title="Đọc tập trung (Zen)">📖</button>
           <button className="header-btn" onClick={summarizePage} title="Tóm tắt &amp; từ khoá trang">📄</button>

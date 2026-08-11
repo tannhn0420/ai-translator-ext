@@ -59,6 +59,7 @@ export type MessageType =
   | 'ASSESS_SPEAKING'
   | 'GENERATE_DRILL'
   | 'OPEN_PRACTICE'
+  | 'OPEN_DICTATION'
   | 'FETCH_IMAGE';
 
 export interface ChromeMessage {

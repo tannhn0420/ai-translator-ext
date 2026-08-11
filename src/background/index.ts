@@ -289,6 +289,10 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
       chrome.tabs.create({ url: chrome.runtime.getURL('src/practice/practice.html') });
       return { success: true };
 
+    case 'OPEN_DICTATION':
+      chrome.tabs.create({ url: chrome.runtime.getURL('src/dictation/dictation.html') });
+      return { success: true };
+
     case 'FETCH_IMAGE':
       return await handleFetchImage((message.payload as { query: string }).query);
 

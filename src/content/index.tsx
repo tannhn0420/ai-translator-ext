@@ -607,12 +607,19 @@ function initContentScript() {
         <div class="ai-pr-hint">🔊 Nghe rồi gõ lại câu (câu đang ẩn).</div>
         <div class="ai-action-bar">
           <button class="ai-tts-btn" data-text="${escapeHtml(sent)}" data-lang="en" title="Nghe lại">🔊 Nghe lại</button>
+          <button class="ai-pr-fulldict" title="Mở trang chép chính tả, kiểm tra từng chữ cái">📝 Chép cả đoạn</button>
         </div>
         <textarea class="ai-pr-type" rows="2" placeholder="Gõ lại những gì bạn nghe…"></textarea>
         <button class="ai-pr-check">Kiểm tra</button>
         <div class="ai-pr-result"></div>
       `;
       wireActionBar(pb);
+      pb.querySelector('.ai-pr-fulldict')?.addEventListener('click', async () => {
+        try {
+          await chrome.storage.local.set({ dictationText: sent });
+          await chrome.runtime.sendMessage({ type: 'OPEN_DICTATION' });
+        } catch { /* ignore */ }
+      });
       speak(sent, 'en'); // auto-play once on open
       const ta = pb.querySelector('.ai-pr-type') as HTMLTextAreaElement;
       const result = pb.querySelector('.ai-pr-result') as HTMLElement;

@@ -21,6 +21,7 @@ export default defineConfig({
         options: 'src/options/options.html',
         flashcards: 'src/flashcards/flashcards.html',
         practice: 'src/practice/practice.html',
+        dictation: 'src/dictation/dictation.html',
       },
     },
   },
