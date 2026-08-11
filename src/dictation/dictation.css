@@ -110,6 +110,31 @@ body {
 .dc-score.nw, .dc-eval.nw { color: var(--red); }
 .dc-done-stats { color: var(--muted); font-size: 14px; margin-top: 10px; }
 
+/* Difficulty options */
+.dc-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 13px; color: var(--muted); }
+.dc-opts-title { font-weight: 600; color: var(--text); }
+.dc-opts label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.dc-opts input { accent-color: var(--indigo); }
+
+/* First-letter hint */
+.dc-ch.gap.hint { color: var(--indigo); opacity: 0.55; }
+
+/* AI feedback */
+.dc-ai { margin-top: 18px; }
+.dc-ai-box {
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--violet);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  max-width: 520px;
+  margin: 0 auto;
+}
+
 .dc-gen {
   background: var(--card);
   border: 1px solid var(--border);

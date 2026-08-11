@@ -60,6 +60,7 @@ interface Session {
   doneByIdx: Record<number, boolean>;
   errorsByIdx: Record<number, number>;
   viByIdx: Record<number, string>;
+  missedByIdx?: Record<number, string[]>;
   finished?: boolean;
   score?: number;
   updatedAt: number;
@@ -69,6 +70,15 @@ function gapCount(s: string): number {
   let n = 0;
   for (const c of s) if (isTypeable(c)) n++;
   return n;
+}
+
+/** The whole word (run of typeable chars) containing position p. */
+function wordAt(t: string, p: number): string {
+  let a = p;
+  while (a > 0 && isTypeable(t[a - 1])) a--;
+  let b = p;
+  while (b < t.length && isTypeable(t[b])) b++;
+  return t.slice(a, b);
 }
 
 /** Accuracy score 0–100: rewards few wrong keystrokes relative to the passage length. */
@@ -97,12 +107,15 @@ function makeTitle(sentences: string[]): string {
 function LetterDictation({
   target,
   revealTick,
+  hintFirst,
   onComplete,
 }: {
   target: string;
   revealTick: number;
-  onComplete: (errors: number) => void;
+  hintFirst: boolean;
+  onComplete: (errors: number, missed: string[]) => void;
 }) {
+  const missedRef = useRef<Set<string>>(new Set());
   const skipAuto = (from: number) => {
     let i = from;
     while (i < target.length && !isTypeable(target[i])) i++;
@@ -119,9 +132,10 @@ function LetterDictation({
     setPos(start);
     setErr(false);
     setErrCount(0);
+    missedRef.current = new Set();
     if (start >= target.length) {
       setDone(true);
-      onComplete(0);
+      onComplete(0, []);
     } else {
       setDone(false);
     }
@@ -159,9 +173,11 @@ function LetterDictation({
       setErr(false);
       if (next >= target.length) {
         setDone(true);
-        onComplete(errCount);
+        onComplete(errCount, Array.from(missedRef.current));
       }
     } else {
+      const w = wordAt(target, pos);
+      if (w) missedRef.current.add(w.toLowerCase());
       setErr(true);
       setErrCount((c) => c + 1);
       window.setTimeout(() => setErr(false), 220);
@@ -177,7 +193,13 @@ function LetterDictation({
         {target.split('').map((c, i) => {
           if (i < pos) return <span key={i} className="dc-ch fill">{c}</span>;
           if (!isTypeable(c)) return <span key={i} className="dc-ch punc">{c}</span>;
-          return <span key={i} className={`dc-ch gap ${i === pos && !done ? 'cur' : ''}`}>_</span>;
+          const firstOfWord = i === 0 || !isTypeable(target[i - 1]);
+          const peek = hintFirst && firstOfWord; // show the first letter of each word as a hint
+          return (
+            <span key={i} className={`dc-ch gap ${i === pos && !done ? 'cur' : ''} ${peek ? 'hint' : ''}`}>
+              {peek ? c : '_'}
+            </span>
+          );
         })}
       </div>
       <div className="dc-mini">{done ? 'done' : `${typed}/${totalGaps}`}</div>
@@ -208,6 +230,12 @@ export default function DictationApp() {
   const [sessionsList, setSessionsList] = useState<Session[]>([]);
   const [currentId, setCurrentId] = useState('');
   const [currentTitle, setCurrentTitle] = useState('');
+  const [missedByIdx, setMissedByIdx] = useState<Record<number, string[]>>({});
+  const [aiFeedback, setAiFeedback] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [showVi, setShowVi] = useState(true);
+  const [allowReveal, setAllowReveal] = useState(true);
+  const [hintFirst, setHintFirst] = useState(false);
   const sentencesRef = useRef<string[]>([]);
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -229,13 +257,19 @@ export default function DictationApp() {
         }
       } catch { /* ignore */ }
       try {
-        const r = await chrome.storage.local.get({ dictationText: '', dictationSessions: [] });
+        const r = await chrome.storage.local.get({ dictationText: '', dictationSessions: [], dictationOpts: null });
         if (r.dictationText) {
           setRaw(r.dictationText as string);
           await chrome.storage.local.set({ dictationText: '' });
         }
         const list = ((r.dictationSessions as Session[]) || []).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         setSessionsList(list);
+        const o = r.dictationOpts as { showVi?: boolean; allowReveal?: boolean; hintFirst?: boolean } | null;
+        if (o) {
+          setShowVi(o.showVi !== false);
+          setAllowReveal(o.allowReveal !== false);
+          setHintFirst(!!o.hintFirst);
+        }
       } catch { /* ignore */ }
     })();
     return () => {
@@ -256,6 +290,7 @@ export default function DictationApp() {
       doneByIdx,
       errorsByIdx,
       viByIdx,
+      missedByIdx,
       finished: completed === sentences.length,
       score: scoreOf(sentences, errorsByIdx),
       updatedAt: Date.now(),
@@ -266,7 +301,12 @@ export default function DictationApp() {
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, currentId, sentences, idx, doneByIdx, errorsByIdx, viByIdx]);
+  }, [started, currentId, sentences, idx, doneByIdx, errorsByIdx, viByIdx, missedByIdx]);
+
+  // Persist difficulty options.
+  useEffect(() => {
+    chrome.storage.local.set({ dictationOpts: { showVi, allowReveal, hintFirst } }).catch(() => {});
+  }, [showVi, allowReveal, hintFirst]);
 
   function deleteSession(id: string) {
     setSessionsList((prev) => {
@@ -310,6 +350,8 @@ export default function DictationApp() {
     setErrorsByIdx({});
     setDoneByIdx({});
     setViByIdx({});
+    setMissedByIdx({});
+    setAiFeedback('');
     setMsg('');
     setCurrentId(id);
     setCurrentTitle(title);
@@ -334,6 +376,8 @@ export default function DictationApp() {
     setDoneByIdx(sess.doneByIdx || {});
     setErrorsByIdx(sess.errorsByIdx || {});
     setViByIdx(sess.viByIdx || {});
+    setMissedByIdx(sess.missedByIdx || {});
+    setAiFeedback('');
     setCurrentId(sess.id);
     setCurrentTitle(sess.title);
     setStarted(true);
@@ -348,6 +392,38 @@ export default function DictationApp() {
     setReveal(0);
     setTimeout(() => speak(sentences[i]), 150);
     void ensureVi(i);
+  }
+
+  function revealCurrent() {
+    setReveal((r) => r + 1);
+    setDoneByIdx((m) => ({ ...m, [idx]: true }));
+    setErrorsByIdx((m) => ({ ...m, [idx]: Math.max(m[idx] || 0, gapCount(sentences[idx])) }));
+  }
+
+  function reviewMistakes() {
+    const wrong = sentences.filter((_, i) => (errorsByIdx[i] || 0) > 0);
+    if (!wrong.length) return;
+    beginWith(wrong, Date.now().toString(36), (currentTitle || 'Passage') + ' — review');
+  }
+
+  async function getAiFeedback() {
+    const words = Array.from(new Set(Object.values(missedByIdx).flat())).slice(0, 40);
+    if (words.length === 0) {
+      setAiFeedback('👍 Không có từ nào gõ sai — tuyệt vời!');
+      return;
+    }
+    setAiLoading(true);
+    setAiFeedback('');
+    try {
+      const q =
+        `Trong bài chép chính tả, học viên gõ sai ở các từ sau: ${words.join(', ')}. ` +
+        `Nhận xét NGẮN bằng tiếng Việt về lý do dễ sai (âm cuối, nguyên âm, chính tả, từ đồng âm…) và cho 1–2 mẹo luyện. Không quá 5 câu.`;
+      const res = await chrome.runtime.sendMessage({ type: 'ASK_FOLLOWUP', payload: { context: 'Dictation practice', question: q, history: [] } });
+      setAiFeedback(res?.success ? res.data?.answer || '' : res?.error || 'Không nhận xét được.');
+    } catch {
+      setAiFeedback('Lỗi kết nối.');
+    }
+    setAiLoading(false);
   }
 
   function exitToSetup() {
@@ -530,6 +606,14 @@ export default function DictationApp() {
             rows={8}
           />
           {msg && <div className="dc-msg">{msg}</div>}
+
+          <div className="dc-opts">
+            <span className="dc-opts-title">Difficulty:</span>
+            <label><input type="checkbox" checked={showVi} onChange={(e) => setShowVi(e.target.checked)} /> Show Vietnamese meaning</label>
+            <label><input type="checkbox" checked={allowReveal} onChange={(e) => setAllowReveal(e.target.checked)} /> Allow “Reveal”</label>
+            <label><input type="checkbox" checked={hintFirst} onChange={(e) => setHintFirst(e.target.checked)} /> Show first letter of each word</label>
+          </div>
+
           <button className="dc-btn primary lg" onClick={start} disabled={!raw.trim()}>🎧 Start</button>
         </section>
       ) : completed === total ? (
@@ -544,9 +628,24 @@ export default function DictationApp() {
               <p className="dc-done-stats">
                 {cleanN}/{total} sentences with no mistakes · {totalErrors} total mistakes
               </p>
+
               <div className="dc-done-actions">
                 <button className="dc-btn primary" onClick={() => beginWith(sentences, currentId, currentTitle)}>Try again</button>
+                {sentences.some((_, i) => (errorsByIdx[i] || 0) > 0) && (
+                  <button className="dc-btn ghost" onClick={reviewMistakes}>
+                    🔁 Review mistakes ({sentences.filter((_, i) => (errorsByIdx[i] || 0) > 0).length})
+                  </button>
+                )}
                 <button className="dc-btn ghost" onClick={newText}>Back to list</button>
+              </div>
+
+              <div className="dc-ai">
+                {!aiFeedback && (
+                  <button className="dc-btn ghost" onClick={getAiFeedback} disabled={aiLoading}>
+                    {aiLoading ? 'Analyzing…' : '🤖 AI feedback'}
+                  </button>
+                )}
+                {aiFeedback && <div className="dc-ai-box">🤖 {aiFeedback}</div>}
               </div>
             </section>
           );
@@ -558,21 +657,23 @@ export default function DictationApp() {
             Sentence {idx + 1} / {total} · Done {completed} · Mistakes {totalErrors}
           </div>
 
-          <div className="dc-vi" title="Vietnamese meaning (hint)">🇻🇳 {viByIdx[idx] || '…'}</div>
+          {showVi && <div className="dc-vi" title="Vietnamese meaning (hint)">🇻🇳 {viByIdx[idx] || '…'}</div>}
 
           <div className="dc-audio">
             <button className="dc-btn primary" onClick={() => speak(sentences[idx])}>🔊 Play</button>
             <button className="dc-btn ghost" onClick={() => speak(sentences[idx], 0.6)}>🐢 Slow</button>
-            <button className="dc-btn ghost" onClick={() => setReveal((r) => r + 1)} title="Reveal this sentence">👁️ Reveal</button>
+            {allowReveal && <button className="dc-btn ghost" onClick={revealCurrent} title="Reveal this sentence (counts as mistakes)">👁️ Reveal</button>}
           </div>
 
           <LetterDictation
             key={idx}
             target={sentences[idx]}
             revealTick={reveal}
-            onComplete={(errs) => {
+            hintFirst={hintFirst}
+            onComplete={(errs, missed) => {
               setErrorsByIdx((m) => ({ ...m, [idx]: errs }));
               setDoneByIdx((m) => ({ ...m, [idx]: true }));
+              if (missed.length) setMissedByIdx((m) => ({ ...m, [idx]: missed }));
             }}
           />
 
