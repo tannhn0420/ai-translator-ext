@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { VocabCard, ReviewRating, Language } from '../types';
 import { reviewCard, getDueCards } from '../utils/srs';
+import { pickVoice, sortedVoices, isNaturalVoice } from '../utils/voice';
 import { fileToThumbnail, parseImport, toCSV, toTSV, toJSON, download, detectLang } from './lib';
 
 type Tab = 'review' | 'quiz' | 'manage' | 'add';
@@ -191,7 +192,7 @@ export default function FlashcardsApp() {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     const uri = lang === 'vi' ? ttsVoiceVi : ttsVoiceEn;
-    const v = voices.find((x) => x.voiceURI === uri);
+    const v = pickVoice(voices, lang === 'vi' ? 'vi' : 'en', uri);
     if (v) u.voice = v;
     else u.lang = lang === 'vi' ? 'vi-VN' : 'en-US';
     u.rate = ttsRate || 0.95;
@@ -395,8 +396,8 @@ export default function FlashcardsApp() {
     return [...list].sort((a, b) => b.createdAt - a.createdAt);
   }, [deck, query, topicFilter]);
 
-  const enVoices = voices.filter((v) => v.lang.toLowerCase().startsWith('en'));
-  const viVoices = voices.filter((v) => v.lang.toLowerCase().startsWith('vi'));
+  const enVoices = sortedVoices(voices.filter((v) => v.lang.toLowerCase().startsWith('en')), 'en');
+  const viVoices = sortedVoices(voices.filter((v) => v.lang.toLowerCase().startsWith('vi')), 'vi');
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -426,12 +427,12 @@ export default function FlashcardsApp() {
       <div className="fc-settings-bar">
         <span className="fc-settings-label">🔊 Giọng</span>
         <select className="fc-select" value={ttsVoiceEn} onChange={(e) => { setTtsVoiceEn(e.target.value); saveTts({ ttsVoiceEn: e.target.value }); }}>
-          <option value="">EN mặc định</option>
-          {enVoices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>)}
+          <option value="">EN — Tự động (giọng tự nhiên)</option>
+          {enVoices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{isNaturalVoice(v) ? '⭐ ' : ''}{v.name}</option>)}
         </select>
         <select className="fc-select" value={ttsVoiceVi} onChange={(e) => { setTtsVoiceVi(e.target.value); saveTts({ ttsVoiceVi: e.target.value }); }}>
-          <option value="">VI mặc định</option>
-          {viVoices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>)}
+          <option value="">VI — Tự động (giọng tự nhiên)</option>
+          {viVoices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{isNaturalVoice(v) ? '⭐ ' : ''}{v.name}</option>)}
         </select>
         <label className="fc-rate">
           Tốc độ {ttsRate.toFixed(2)}

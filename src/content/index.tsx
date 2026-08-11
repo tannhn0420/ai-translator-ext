@@ -10,6 +10,7 @@ import { initWritingAssistant } from './writing';
 import { initHighlight, toggleHighlight } from './highlight';
 import { recognizeOnce, scoreSpeech, isSpeechRecognitionSupported } from '../practice/speech';
 import { reviewCard } from '../utils/srs';
+import { pickVoice } from '../utils/voice';
 
 // Avoid re-injection
 if (!(window as unknown as Record<string, boolean>).__AI_TRANSLATOR_INJECTED__) {
@@ -1240,7 +1241,7 @@ function initContentScript() {
     const utter = new SpeechSynthesisUtterance(text);
     const uri = isVi ? cachedSettings.ttsVoiceVi : cachedSettings.ttsVoiceEn;
     const voices = ttsVoices.length ? ttsVoices : window.speechSynthesis.getVoices();
-    const voice = uri ? voices.find((v) => v.voiceURI === uri) : undefined;
+    const voice = pickVoice(voices, isVi ? 'vi' : 'en', uri);
     if (voice) utter.voice = voice;
     else utter.lang = isVi ? 'vi-VN' : 'en-US';
     utter.rate = cachedSettings.ttsRate || 0.95;

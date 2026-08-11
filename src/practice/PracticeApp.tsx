@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PracticePack, DialogueLine, Language, SpeakingAssessment, VocabCard, DrillPack, PracticeVocab } from '../types';
 import { isSpeechRecognitionSupported, recognizeOnce, scoreSpeech, type SpeechScore, type ScoredToken, type RecognitionHandle } from './speech';
 import { cachedImage, loadImage } from './images';
+import { pickVoice } from '../utils/voice';
 
 const TOPIC_SUGGESTIONS = ['Nhà hàng', 'Sân bay', 'Phỏng vấn xin việc', 'Khách sạn', 'Mua sắm', 'Cuộc họp', 'Du lịch', 'Đi khám bệnh'];
 const LEVELS: { key: string; label: string }[] = [
@@ -215,7 +216,7 @@ export default function PracticeApp() {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     const uri = lang === 'vi' ? ttsRef.current.vi : ttsRef.current.en;
-    const v = voices.find((x) => x.voiceURI === uri);
+    const v = pickVoice(voices, lang === 'vi' ? 'vi' : 'en', uri);
     if (v) u.voice = v;
     else u.lang = lang === 'vi' ? 'vi-VN' : 'en-US';
     u.rate = rate ?? ttsRef.current.rate ?? 0.95;

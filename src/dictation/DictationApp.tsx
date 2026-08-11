@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { parseSource, splitSentences } from './lib';
+import { pickVoice } from '../utils/voice';
 import './dictation.css';
 
 function isTypeable(c: string): boolean {
@@ -406,7 +407,7 @@ export default function DictationApp() {
     if (!('speechSynthesis' in window) || !text) return;
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    const v = voices.find((x) => x.voiceURI === ttsRef.current.en);
+    const v = pickVoice(voices, 'en', ttsRef.current.en);
     if (v) u.voice = v;
     else u.lang = 'en-US';
     u.rate = rate ?? ttsRef.current.rate ?? 0.95;
