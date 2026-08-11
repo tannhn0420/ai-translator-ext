@@ -55,14 +55,48 @@ const RANDOM_TOPICS = [
 // Communication scenarios → generate common phrases you can dictate & memorize.
 const COMM_TOPICS: { group: string; topics: string[] }[] = [
   {
-    group: 'IT & Software',
+    group: 'IT — Team & Agile',
     topics: [
-      'Daily standup update', 'Code review comments', 'Reporting a bug', 'Discussing a pull request',
-      'Sprint planning', 'Explaining a technical problem', 'Asking a teammate for help', 'Deploying to production',
-      'Talking to a client about requirements', 'Estimating a task', 'Knowledge transfer / handover',
-      'Reporting an incident or outage', 'Technical interview answers', 'Work chat (Slack/Teams) messages',
-      'Discussing API design', 'Onboarding a new developer', 'Sprint retrospective', 'Demoing your work',
-      'Writing a commit message / release note', 'Disagreeing politely in a review',
+      'Daily standup update', 'Sprint planning', 'Sprint retrospective', 'Estimating a task',
+      'Discussing a pull request', 'Code review comments', 'Disagreeing politely in a review',
+      'Onboarding a new developer', 'Knowledge transfer / handover', 'Demoing your work', 'Backlog grooming',
+    ],
+  },
+  {
+    group: 'IT — Coding & Debugging',
+    topics: [
+      'Reporting a bug', 'Explaining a technical problem', 'Asking a teammate for help', 'Discussing API design',
+      'Refactoring and tech debt', 'Discussing system architecture', 'Writing a commit message / release note',
+      'Pair programming', 'Reading a stack trace together',
+    ],
+  },
+  {
+    group: 'IT — DevOps & Incidents',
+    topics: [
+      'Deploying to production', 'CI/CD pipeline issues', 'Reporting an incident or outage', 'Post-incident review',
+      'Rolling back a release', 'Monitoring and alerts', 'Environment / configuration issues', 'Docker & Kubernetes talk',
+    ],
+  },
+  {
+    group: 'IT — QA & Testing',
+    topics: [
+      'Writing a bug report to a developer', 'Discussing test cases', 'Reporting test results',
+      'Regression testing', 'UAT with a client', 'Reproducing an issue', 'Verifying a fix',
+    ],
+  },
+  {
+    group: 'IT — Database & Security',
+    topics: [
+      'Discussing a database schema', 'Explaining a SQL query', 'A slow query / performance issue',
+      'A data migration', 'Reporting a security vulnerability', 'Access / permissions request', 'Handling sensitive data',
+    ],
+  },
+  {
+    group: 'IT — With BA / PM / Client',
+    topics: [
+      'Clarifying requirements with a BA', 'Status update to a project manager', 'Negotiating scope or a deadline',
+      'Explaining a delay', 'A client demo', 'Gathering feedback from a client', 'Raising a risk or blocker',
+      'Technical interview answers', 'Work chat (Slack/Teams) messages',
     ],
   },
   {
@@ -249,6 +283,7 @@ export default function DictationApp() {
   const [genWords, setGenWords] = useState(150);
   const [generating, setGenerating] = useState(false);
   const [commCat, setCommCat] = useState(0);
+  const [commCustom, setCommCustom] = useState('');
 
   const [sentences, setSentences] = useState<string[]>([]);
   const [idx, setIdx] = useState(0);
@@ -621,6 +656,18 @@ export default function DictationApp() {
               {COMM_TOPICS[commCat].topics.map((t) => (
                 <button key={t} className="dc-chip" disabled={generating} onClick={() => generatePhrases(t)}>{t}</button>
               ))}
+            </div>
+            <div className="dc-gen-row" style={{ marginTop: 10 }}>
+              <input
+                className="dc-url"
+                value={commCustom}
+                onChange={(e) => setCommCustom(e.target.value)}
+                placeholder="Or type your own scenario (e.g. asking for a code review)"
+                onKeyDown={(e) => { if (e.key === 'Enter' && commCustom.trim()) generatePhrases(commCustom.trim()); }}
+              />
+              <button className="dc-btn ghost" disabled={generating || !commCustom.trim()} onClick={() => generatePhrases(commCustom.trim())}>
+                🗣️ Phrases
+              </button>
             </div>
           </div>
 
