@@ -53,11 +53,43 @@ const RANDOM_TOPICS = [
 ];
 
 interface Session {
+  id: string;
+  title: string;
   sentences: string[];
   idx: number;
   doneByIdx: Record<number, boolean>;
   errorsByIdx: Record<number, number>;
   viByIdx: Record<number, string>;
+  finished?: boolean;
+  score?: number;
+  updatedAt: number;
+}
+
+function gapCount(s: string): number {
+  let n = 0;
+  for (const c of s) if (isTypeable(c)) n++;
+  return n;
+}
+
+/** Accuracy score 0–100: rewards few wrong keystrokes relative to the passage length. */
+function scoreOf(sentences: string[], errorsByIdx: Record<number, number>): number {
+  const totalGaps = sentences.reduce((a, s) => a + gapCount(s), 0);
+  const mistakes = Object.values(errorsByIdx).reduce((a, b) => a + b, 0);
+  if (totalGaps === 0) return 0;
+  return Math.max(0, Math.round(100 * (1 - mistakes / totalGaps)));
+}
+
+function evalLabel(score: number): { label: string; cls: string } {
+  if (score >= 95) return { label: 'Excellent 🌟', cls: 'ex' };
+  if (score >= 85) return { label: 'Great 👏', cls: 'gr' };
+  if (score >= 70) return { label: 'Good 👍', cls: 'go' };
+  if (score >= 50) return { label: 'Keep practicing 💪', cls: 'kp' };
+  return { label: 'Needs work 📚', cls: 'nw' };
+}
+
+function makeTitle(sentences: string[]): string {
+  const t = sentences.join(' ').trim();
+  return (t.length > 52 ? t.slice(0, 52) + '…' : t) || 'Untitled';
 }
 
 // ---- Letter-by-letter dictation of ONE sentence ----
@@ -173,7 +205,9 @@ export default function DictationApp() {
   const [errorsByIdx, setErrorsByIdx] = useState<Record<number, number>>({});
   const [doneByIdx, setDoneByIdx] = useState<Record<number, boolean>>({});
   const [viByIdx, setViByIdx] = useState<Record<number, string>>({});
-  const [resume, setResume] = useState<Session | null>(null);
+  const [sessionsList, setSessionsList] = useState<Session[]>([]);
+  const [currentId, setCurrentId] = useState('');
+  const [currentTitle, setCurrentTitle] = useState('');
   const sentencesRef = useRef<string[]>([]);
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -195,16 +229,13 @@ export default function DictationApp() {
         }
       } catch { /* ignore */ }
       try {
-        const r = await chrome.storage.local.get({ dictationText: '', dictationSession: null });
+        const r = await chrome.storage.local.get({ dictationText: '', dictationSessions: [] });
         if (r.dictationText) {
           setRaw(r.dictationText as string);
           await chrome.storage.local.set({ dictationText: '' });
         }
-        const sess = r.dictationSession as Session | null;
-        if (sess && sess.sentences?.length) {
-          const allDone = sess.sentences.every((_, i) => sess.doneByIdx?.[i]);
-          if (!allDone) setResume(sess);
-        }
+        const list = ((r.dictationSessions as Session[]) || []).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        setSessionsList(list);
       } catch { /* ignore */ }
     })();
     return () => {
@@ -213,14 +244,36 @@ export default function DictationApp() {
     };
   }, []);
 
-  // Persist progress so the exercise can be resumed later (or in a pop-out window).
+  // Persist each session by id so multiple in-progress passages can be resumed.
   useEffect(() => {
-    if (!started || sentences.length === 0) return;
-    chrome.storage.local.set({ dictationSession: { sentences, idx, doneByIdx, errorsByIdx, viByIdx } }).catch(() => {});
-  }, [started, sentences, idx, doneByIdx, errorsByIdx, viByIdx]);
+    if (!started || !currentId || sentences.length === 0) return;
+    const completed = Object.values(doneByIdx).filter(Boolean).length;
+    const sess: Session = {
+      id: currentId,
+      title: currentTitle,
+      sentences,
+      idx,
+      doneByIdx,
+      errorsByIdx,
+      viByIdx,
+      finished: completed === sentences.length,
+      score: scoreOf(sentences, errorsByIdx),
+      updatedAt: Date.now(),
+    };
+    setSessionsList((prev) => {
+      const next = [sess, ...prev.filter((s) => s.id !== currentId)].slice(0, 12);
+      chrome.storage.local.set({ dictationSessions: next }).catch(() => {});
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, currentId, sentences, idx, doneByIdx, errorsByIdx, viByIdx]);
 
-  function clearSession() {
-    chrome.storage.local.remove('dictationSession').catch(() => {});
+  function deleteSession(id: string) {
+    setSessionsList((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      chrome.storage.local.set({ dictationSessions: next }).catch(() => {});
+      return next;
+    });
   }
 
   function speak(text: string, rate?: number) {
@@ -247,7 +300,8 @@ export default function DictationApp() {
     }
   }
 
-  function beginWith(list: string[]) {
+  /** Start a fresh run of `list` under a session id (resets progress). */
+  function beginWith(list: string[], id: string, title: string) {
     sentencesRef.current = list;
     setSentences(list);
     setIdx(0);
@@ -257,7 +311,8 @@ export default function DictationApp() {
     setDoneByIdx({});
     setViByIdx({});
     setMsg('');
-    setResume(null);
+    setCurrentId(id);
+    setCurrentTitle(title);
     setTimeout(() => speak(list[0]), 250);
     void ensureVi(0);
   }
@@ -268,22 +323,23 @@ export default function DictationApp() {
       setMsg('No sentences found — check the text.');
       return;
     }
-    beginWith(list);
+    beginWith(list, Date.now().toString(36), makeTitle(list));
   }
 
-  function doResume() {
-    if (!resume) return;
-    sentencesRef.current = resume.sentences;
-    setSentences(resume.sentences);
-    setIdx(resume.idx || 0);
-    setDoneByIdx(resume.doneByIdx || {});
-    setErrorsByIdx(resume.errorsByIdx || {});
-    setViByIdx(resume.viByIdx || {});
+  /** Continue a saved session where it left off. */
+  function doResume(sess: Session) {
+    sentencesRef.current = sess.sentences;
+    setSentences(sess.sentences);
+    setIdx(sess.idx || 0);
+    setDoneByIdx(sess.doneByIdx || {});
+    setErrorsByIdx(sess.errorsByIdx || {});
+    setViByIdx(sess.viByIdx || {});
+    setCurrentId(sess.id);
+    setCurrentTitle(sess.title);
     setStarted(true);
     setReveal(0);
-    setResume(null);
-    setTimeout(() => speak(resume.sentences[resume.idx || 0]), 250);
-    void ensureVi(resume.idx || 0);
+    setTimeout(() => speak(sess.sentences[sess.idx || 0]), 250);
+    void ensureVi(sess.idx || 0);
   }
 
   function goto(i: number) {
@@ -295,18 +351,17 @@ export default function DictationApp() {
   }
 
   function exitToSetup() {
-    // Progress is already saved; just leave the run view so it can be resumed.
+    // Progress is already saved under currentId; just leave the run view.
     window.speechSynthesis?.cancel();
     setStarted(false);
-    setResume({ sentences, idx, doneByIdx, errorsByIdx, viByIdx });
   }
 
   function newText() {
     window.speechSynthesis?.cancel();
-    clearSession();
     setStarted(false);
-    setResume(null);
     setSentences([]);
+    setCurrentId('');
+    setRaw('');
   }
 
   async function generatePassage() {
@@ -393,16 +448,30 @@ export default function DictationApp() {
 
       {!started ? (
         <section className="dc-setup">
-          {resume && (
-            <div className="dc-resume">
-              <div>
-                <b>Unfinished passage</b>
-                <div className="dc-resume-sub">Sentence {(resume.idx || 0) + 1} of {resume.sentences.length}</div>
-              </div>
-              <div className="dc-resume-actions">
-                <button className="dc-btn primary" onClick={doResume}>Resume</button>
-                <button className="dc-btn ghost" onClick={() => { clearSession(); setResume(null); }}>Discard</button>
-              </div>
+          {sessionsList.length > 0 && (
+            <div className="dc-sessions">
+              <div className="dc-sessions-title">Your passages</div>
+              {sessionsList.map((s) => {
+                const done = s.sentences.filter((_, i) => s.doneByIdx?.[i]).length;
+                return (
+                  <div className="dc-sess" key={s.id}>
+                    <div className="dc-sess-main">
+                      <div className="dc-sess-title">{s.title}</div>
+                      <div className="dc-sess-sub">
+                        {s.finished ? `✓ Finished · score ${s.score ?? 0}` : `In progress · ${done}/${s.sentences.length}`}
+                      </div>
+                    </div>
+                    <div className="dc-sess-actions">
+                      {s.finished ? (
+                        <button className="dc-btn sm primary" onClick={() => beginWith(s.sentences, s.id, s.title)}>Redo</button>
+                      ) : (
+                        <button className="dc-btn sm primary" onClick={() => doResume(s)}>Resume</button>
+                      )}
+                      <button className="dc-btn sm ghost" title="Delete" onClick={() => deleteSession(s.id)}>✕</button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -464,15 +533,24 @@ export default function DictationApp() {
           <button className="dc-btn primary lg" onClick={start} disabled={!raw.trim()}>🎧 Start</button>
         </section>
       ) : completed === total ? (
-        <section className="dc-done">
-          <div className="dc-done-emoji">🏆</div>
-          <h2>Finished {total} sentences!</h2>
-          <p>Total mistakes: <b>{totalErrors}</b></p>
-          <div className="dc-done-actions">
-            <button className="dc-btn primary" onClick={() => { clearSession(); goto(0); }}>Restart</button>
-            <button className="dc-btn ghost" onClick={newText}>New text</button>
-          </div>
-        </section>
+        (() => {
+          const score = scoreOf(sentences, errorsByIdx);
+          const ev = evalLabel(score);
+          const cleanN = sentences.filter((_, i) => doneByIdx[i] && !errorsByIdx[i]).length;
+          return (
+            <section className="dc-done">
+              <div className={`dc-score ${ev.cls}`}>{score}<span>%</span></div>
+              <div className={`dc-eval ${ev.cls}`}>{ev.label}</div>
+              <p className="dc-done-stats">
+                {cleanN}/{total} sentences with no mistakes · {totalErrors} total mistakes
+              </p>
+              <div className="dc-done-actions">
+                <button className="dc-btn primary" onClick={() => beginWith(sentences, currentId, currentTitle)}>Try again</button>
+                <button className="dc-btn ghost" onClick={newText}>Back to list</button>
+              </div>
+            </section>
+          );
+        })()
       ) : (
         <section className="dc-run">
           <div className="dc-bar"><div className="dc-bar-fill" style={{ width: `${pct}%` }} /></div>

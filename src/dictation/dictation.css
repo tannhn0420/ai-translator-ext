@@ -81,15 +81,34 @@ body {
 .dc-setup { display: flex; flex-direction: column; gap: 16px; }
 .dc-help { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0; }
 
-.dc-resume {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.14), rgba(139, 92, 246, 0.1));
-  border: 1px solid var(--border-strong);
+.dc-sessions {
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 14px 16px;
+  padding: 12px 14px;
 }
-.dc-resume-sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
-.dc-resume-actions { display: flex; gap: 8px; }
+.dc-sessions-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 8px; }
+.dc-sess {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--border);
+}
+.dc-sess:first-of-type { border-top: none; }
+.dc-sess-main { flex: 1; min-width: 0; }
+.dc-sess-title { font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dc-sess-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.dc-sess-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+
+/* Score / evaluation */
+.dc-score { font-size: 64px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+.dc-score span { font-size: 26px; font-weight: 700; margin-left: 2px; opacity: 0.7; }
+.dc-eval { font-size: 18px; font-weight: 700; margin-top: 8px; }
+.dc-score.ex, .dc-eval.ex { color: #34d399; }
+.dc-score.gr, .dc-eval.gr { color: #6ee7b7; }
+.dc-score.go, .dc-eval.go { color: var(--indigo); }
+.dc-score.kp, .dc-eval.kp { color: #f59e0b; }
+.dc-score.nw, .dc-eval.nw { color: var(--red); }
+.dc-done-stats { color: var(--muted); font-size: 14px; margin-top: 10px; }
 
 .dc-gen {
   background: var(--card);
