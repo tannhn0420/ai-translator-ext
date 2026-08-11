@@ -7,7 +7,45 @@ import type { VocabCard, ReviewRating, Language } from '../types';
 import { reviewCard, getDueCards } from '../utils/srs';
 import { fileToThumbnail, parseImport, toCSV, toTSV, toJSON, download, detectLang } from './lib';
 
-type Tab = 'review' | 'manage' | 'add';
+type Tab = 'review' | 'quiz' | 'manage' | 'add';
+
+interface QuizQ {
+  card: VocabCard;
+  options: string[];
+  correct: number;
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Build a multiple-choice quiz: show a term, pick its meaning among distractors. */
+function buildQuiz(deck: VocabCard[], n = 10): QuizQ[] {
+  const norm = (s: string) => s.trim().toLowerCase();
+  const cards = deck.filter((c) => c.term.trim() && c.meaning.trim());
+  if (cards.length < 4) return [];
+  return shuffle(cards)
+    .slice(0, Math.min(n, cards.length))
+    .map((card) => {
+      const seen = new Set([norm(card.meaning)]);
+      const distractors: string[] = [];
+      for (const o of shuffle(cards)) {
+        if (o.id === card.id) continue;
+        const k = norm(o.meaning);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        distractors.push(o.meaning);
+        if (distractors.length === 3) break;
+      }
+      const options = shuffle([card.meaning, ...distractors]);
+      return { card, options, correct: options.indexOf(card.meaning) };
+    });
+}
 type ReviewMode = 'due' | 'all' | 'learned';
 
 const DEFAULT_TOPIC = 'Chung';
@@ -57,6 +95,12 @@ export default function FlashcardsApp() {
   const [session, setSession] = useState<VocabCard[]>([]);
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
+
+  // Quiz
+  const [quiz, setQuiz] = useState<QuizQ[]>([]);
+  const [qIdx, setQIdx] = useState(0);
+  const [qPicked, setQPicked] = useState<number | null>(null);
+  const [qScore, setQScore] = useState(0);
 
   const [query, setQuery] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -152,6 +196,26 @@ export default function FlashcardsApp() {
     else u.lang = lang === 'vi' ? 'vi-VN' : 'en-US';
     u.rate = ttsRate || 0.95;
     window.speechSynthesis.speak(u);
+  }
+
+  function startQuiz() {
+    const pool = topicFilter ? deck.filter((c) => (c.topic || DEFAULT_TOPIC) === topicFilter) : deck;
+    setQuiz(buildQuiz(pool));
+    setQIdx(0);
+    setQPicked(null);
+    setQScore(0);
+  }
+
+  function pickQuiz(i: number) {
+    if (qPicked !== null) return;
+    setQPicked(i);
+    if (i === quiz[qIdx].correct) setQScore((s) => s + 1);
+    speak(quiz[qIdx].card.term, quiz[qIdx].card.lang);
+  }
+
+  function nextQuiz() {
+    setQPicked(null);
+    setQIdx((i) => i + 1);
   }
 
   async function saveTts(patch: Partial<{ ttsVoiceEn: string; ttsVoiceVi: string; ttsRate: number }>) {
@@ -383,6 +447,9 @@ export default function FlashcardsApp() {
         <button className={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}>
           🎯 Ôn tập {stats.due > 0 && <span className="fc-badge">{stats.due}</span>}
         </button>
+        <button className={tab === 'quiz' ? 'active' : ''} onClick={() => { setQuiz([]); setTab('quiz'); }}>
+          🧠 Trắc nghiệm
+        </button>
         <button className={tab === 'manage' ? 'active' : ''} onClick={() => setTab('manage')}>
           📚 Danh sách ({stats.total})
         </button>
@@ -449,6 +516,58 @@ export default function FlashcardsApp() {
                 <button className="fc-flip" onClick={() => setFlipped(true)}>Hiện nghĩa</button>
               )}
               <button className="fc-skip" onClick={skipCard} title="Chuyển thẻ tiếp theo mà không chấm">Bỏ qua →</button>
+            </>
+          )}
+        </section>
+      ) : tab === 'quiz' ? (
+        <section className="fc-quiz">
+          {quiz.length === 0 ? (
+            <div className="fc-empty">
+              <div className="fc-empty-emoji">🧠</div>
+              {deck.length < 4 ? (
+                <p>Cần ít nhất <b>4 thẻ</b> (có nghĩa) để làm trắc nghiệm. Hãy lưu/tạo thêm từ.</p>
+              ) : (
+                <>
+                  <p>Chọn nghĩa đúng của từ được hiện. Tối đa 10 câu mỗi lượt.</p>
+                  <select className="fc-select" value={topicFilter} onChange={(e) => setTopicFilter(e.target.value)} style={{ marginBottom: 12 }}>
+                    <option value="">Mọi chủ đề</option>
+                    {topics.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <button className="fc-flip" onClick={startQuiz}>Bắt đầu trắc nghiệm</button>
+                </>
+              )}
+            </div>
+          ) : qIdx >= quiz.length ? (
+            <div className="fc-empty">
+              <div className="fc-empty-emoji">{qScore / quiz.length >= 0.8 ? '🏆' : '🎉'}</div>
+              <p>Kết quả: <b>{qScore}/{quiz.length}</b> ({Math.round((qScore / quiz.length) * 100)}%)</p>
+              <button className="fc-flip" onClick={startQuiz}>Làm lại</button>
+            </div>
+          ) : (
+            <>
+              <div className="fc-progress">{qIdx + 1} / {quiz.length} · Điểm {qScore}</div>
+              <div className="fc-quiz-term">
+                {quiz[qIdx].card.term}
+                <button className="fc-play" title="Nghe" onClick={() => speak(quiz[qIdx].card.term, quiz[qIdx].card.lang)}>🔊</button>
+              </div>
+              {quiz[qIdx].card.ipa && <div className="fc-card-ipa">/{quiz[qIdx].card.ipa.replace(/^\/|\/$/g, '')}/</div>}
+              <div className="fc-quiz-opts">
+                {quiz[qIdx].options.map((opt, i) => {
+                  const answered = qPicked !== null;
+                  const isCorrect = i === quiz[qIdx].correct;
+                  const cls = answered ? (isCorrect ? 'correct' : i === qPicked ? 'wrong' : 'dim') : '';
+                  return (
+                    <button key={i} className={`fc-quiz-opt ${cls}`} disabled={answered} onClick={() => pickQuiz(i)}>
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
+              {qPicked !== null && (
+                <button className="fc-flip" onClick={nextQuiz}>
+                  {qIdx + 1 < quiz.length ? 'Câu tiếp →' : 'Xem kết quả'}
+                </button>
+              )}
             </>
           )}
         </section>
