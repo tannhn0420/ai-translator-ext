@@ -672,6 +672,7 @@ async function handleGeneratePassage(request: any): Promise<any> {
   const topic: string = (request.payload?.topic || '').toString().trim().slice(0, 100);
   const level: string = request.payload?.level || 'intermediate';
   const words = Math.min(250, Math.max(60, Number(request.payload?.words) || 150));
+  const mode: string = request.payload?.mode === 'phrases' ? 'phrases' : 'passage';
 
   const providers = buildProviderList(settings);
   if (!providers.some((p) => p.key)) {
@@ -679,10 +680,13 @@ async function handleGeneratePassage(request: any): Promise<any> {
   }
 
   const userText =
-    `Write a coherent, self-contained English passage of about ${words} words` +
-    (topic ? ` about "${topic}"` : ' on an interesting everyday or general-knowledge topic of your choice') +
-    `. Learner level: ${level}. Use natural prose in 2-4 short paragraphs, good for reading aloud and for dictation. ` +
-    `Output ONLY the passage text — no title, no markdown, no notes.`;
+    mode === 'phrases'
+      ? `List about 12 common, natural English sentences that a person would actually SAY or WRITE in this situation: "${topic || 'everyday communication'}". Learner level: ${level}. ` +
+        `Put ONE sentence on each line. No numbering, no bullets, no headings, no extra commentary. Make them practical and varied (a mix of speaking and chat/email phrasing).`
+      : `Write a coherent, self-contained English passage of about ${words} words` +
+        (topic ? ` about "${topic}"` : ' on an interesting everyday or general-knowledge topic of your choice') +
+        `. Learner level: ${level}. Use natural prose in 2-4 short paragraphs, good for reading aloud and for dictation. ` +
+        `Output ONLY the passage text — no title, no markdown, no notes.`;
 
   let raw = '';
   let lastError: Error | null = null;
@@ -698,6 +702,16 @@ async function handleGeneratePassage(request: any): Promise<any> {
     }
   }
   if (!raw.trim()) return { success: false, error: lastError?.message || 'Không tạo được bài.' };
+
+  if (mode === 'phrases') {
+    // Strip any stray numbering/bullets and keep one sentence per line.
+    const lines = raw
+      .split('\n')
+      .map((l) => l.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '').replace(/^["“']+|["”']+$/g, '').trim())
+      .filter(Boolean);
+    return { success: true, data: { passage: lines.join('\n') } };
+  }
+
   const passage = raw.trim().replace(/^["“'']+|["”'']+$/g, '').trim();
   return { success: true, data: { passage } };
 }

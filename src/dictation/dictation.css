@@ -156,6 +156,22 @@ body {
   cursor: pointer;
 }
 
+.dc-dim { color: var(--muted); font-weight: 400; font-size: 12px; }
+.dc-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.dc-chip {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 7px 13px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.dc-chip:hover:not(:disabled) { border-color: var(--border-strong); background: rgba(99, 102, 241, 0.12); }
+.dc-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .dc-or { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
 .dc-or::before, .dc-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 

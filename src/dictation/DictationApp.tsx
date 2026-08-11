@@ -52,6 +52,35 @@ const RANDOM_TOPICS = [
   'staying focused while studying', 'famous landmarks around the world',
 ];
 
+// Communication scenarios → generate common phrases you can dictate & memorize.
+const COMM_TOPICS: { group: string; topics: string[] }[] = [
+  {
+    group: 'IT & Software',
+    topics: [
+      'Daily standup update', 'Code review comments', 'Reporting a bug', 'Discussing a pull request',
+      'Sprint planning', 'Explaining a technical problem', 'Asking a teammate for help', 'Deploying to production',
+      'Talking to a client about requirements', 'Estimating a task', 'Knowledge transfer / handover',
+      'Reporting an incident or outage', 'Technical interview answers', 'Work chat (Slack/Teams) messages',
+      'Discussing API design', 'Onboarding a new developer', 'Sprint retrospective', 'Demoing your work',
+      'Writing a commit message / release note', 'Disagreeing politely in a review',
+    ],
+  },
+  {
+    group: 'Work & Business',
+    topics: [
+      'Introducing yourself at work', 'Small talk with colleagues', 'Scheduling a meeting', 'Polite email requests',
+      'Giving your opinion in a meeting', 'Apologizing and following up', 'Asking for feedback', 'Making a phone call at work',
+    ],
+  },
+  {
+    group: 'Daily life',
+    topics: [
+      'Ordering food at a restaurant', 'Asking for directions', 'Shopping', 'At the airport',
+      'Making an appointment', 'Talking about your weekend', 'Meeting new people', 'At the doctor',
+    ],
+  },
+];
+
 interface Session {
   id: string;
   title: string;
@@ -219,6 +248,7 @@ export default function DictationApp() {
   const [genLevel, setGenLevel] = useState('intermediate');
   const [genWords, setGenWords] = useState(150);
   const [generating, setGenerating] = useState(false);
+  const [commCat, setCommCat] = useState(0);
 
   const [sentences, setSentences] = useState<string[]>([]);
   const [idx, setIdx] = useState(0);
@@ -440,6 +470,24 @@ export default function DictationApp() {
     setRaw('');
   }
 
+  async function generatePhrases(topic: string) {
+    setGenerating(true);
+    setMsg('');
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'GENERATE_PASSAGE', payload: { topic, level: genLevel, mode: 'phrases' } });
+      if (!res?.success || !res.data?.passage) {
+        setMsg(res?.error || 'Could not generate phrases.');
+      } else {
+        setRaw(res.data.passage);
+        const n = res.data.passage.split('\n').filter(Boolean).length;
+        setMsg(`Generated ${n} phrases for "${topic}". Review, then Start.`);
+      }
+    } catch {
+      setMsg('Error while generating.');
+    }
+    setGenerating(false);
+  }
+
   async function generatePassage() {
     setGenerating(true);
     setMsg('');
@@ -556,6 +604,25 @@ export default function DictationApp() {
             (SRT / VTT / transcript — timestamps are removed). Listen to each sentence and type it back;
             every letter is checked instantly. The Vietnamese meaning is shown to help you guess.
           </p>
+
+          <div className="dc-gen">
+            <div className="dc-gen-title">🗣️ Common phrases by topic {generating && <span className="dc-dim">· generating…</span>}</div>
+            <div className="dc-gen-row" style={{ marginBottom: 10 }}>
+              <select className="dc-select" value={commCat} onChange={(e) => setCommCat(Number(e.target.value))}>
+                {COMM_TOPICS.map((g, i) => <option key={i} value={i}>{g.group}</option>)}
+              </select>
+              <select className="dc-select" value={genLevel} onChange={(e) => setGenLevel(e.target.value)}>
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </div>
+            <div className="dc-chips">
+              {COMM_TOPICS[commCat].topics.map((t) => (
+                <button key={t} className="dc-chip" disabled={generating} onClick={() => generatePhrases(t)}>{t}</button>
+              ))}
+            </div>
+          </div>
 
           <div className="dc-gen">
             <div className="dc-gen-title">🎲 Let AI write a passage</div>

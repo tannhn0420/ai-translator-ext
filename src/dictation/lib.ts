@@ -27,30 +27,33 @@ export function parseSource(raw: string): string {
   for (const l of out) {
     if (deduped[deduped.length - 1] !== l) deduped.push(l);
   }
-  return deduped.join(' ').replace(/\s+/g, ' ').trim();
+  // Keep line breaks (so a phrase-per-line list stays split by line); collapse only spaces.
+  return deduped.join('\n').replace(/[ \t]+/g, ' ').trim();
 }
 
-/** Split prose into sentences; break over-long sentences at commas to keep units typeable. */
+/** Split into dictation units: each non-empty line is a unit; long prose lines are further
+ *  split into sentences, and very long sentences are broken at commas. */
 export function splitSentences(text: string): string[] {
-  const clean = (text || '').replace(/\s+/g, ' ').trim();
-  if (!clean) return [];
-  const parts = clean.match(/[^.!?]+[.!?]+["'’)\]]*|\S[^.!?]*$/g) || [clean];
+  const lines = (text || '').split(/\n+/).map((l) => l.replace(/[ \t]+/g, ' ').trim()).filter(Boolean);
   const result: string[] = [];
-  for (const raw of parts.map((s) => s.trim()).filter(Boolean)) {
-    if (raw.length <= 180) {
-      result.push(raw);
-      continue;
-    }
-    let chunk = '';
-    for (const piece of raw.split(/(,\s+)/)) {
-      if ((chunk + piece).length > 180 && chunk.trim()) {
-        result.push(chunk.trim());
-        chunk = piece;
-      } else {
-        chunk += piece;
+  for (const line of lines) {
+    const parts = line.match(/[^.!?]+[.!?]+["'’)\]]*|\S[^.!?]*$/g) || [line];
+    for (const raw of parts.map((s) => s.trim()).filter(Boolean)) {
+      if (raw.length <= 180) {
+        result.push(raw);
+        continue;
       }
+      let chunk = '';
+      for (const piece of raw.split(/(,\s+)/)) {
+        if ((chunk + piece).length > 180 && chunk.trim()) {
+          result.push(chunk.trim());
+          chunk = piece;
+        } else {
+          chunk += piece;
+        }
+      }
+      if (chunk.trim()) result.push(chunk.trim());
     }
-    if (chunk.trim()) result.push(chunk.trim());
   }
   return result;
 }
