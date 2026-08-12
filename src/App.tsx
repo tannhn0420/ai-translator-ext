@@ -16,6 +16,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Settings state
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -380,13 +381,25 @@ function App() {
         </div>
         <div className="popup-header-actions">
           <button className="header-btn" onClick={toggleTheme} title="Giao diện sáng/tối">{theme === 'dark' ? '☀️' : '🌙'}</button>
-          <button className="header-btn" onClick={openProgress} title="Tiến độ học tập">📊</button>
-          <button className="header-btn" onClick={openPractice} title="Luyện tập theo chủ đề">🎯</button>
-          <button className="header-btn" onClick={openDictation} title="Chép chính tả (đoạn văn / phụ đề)">🎧</button>
-          <button className="header-btn" onClick={openFlashcards} title="Sổ từ vựng">📇</button>
-          <button className="header-btn" onClick={openZenMode} title="Đọc tập trung (Zen)">📖</button>
-          <button className="header-btn" onClick={summarizePage} title="Tóm tắt &amp; từ khoá trang">📄</button>
-          <button className="header-btn" onClick={toggleHighlight} title="Tô sáng từ khó trên trang">🖍️</button>
+          <div className="popup-menu-wrap">
+            <button className="header-btn" onClick={() => setMenuOpen((o) => !o)} title="Menu">☰</button>
+            {menuOpen && (
+              <>
+                <div className="popup-menu-backdrop" onClick={() => setMenuOpen(false)} />
+                <div className="popup-menu">
+                  <div className="popup-menu-label">Học tập</div>
+                  <button className="popup-menu-item" onClick={() => { setMenuOpen(false); openProgress(); }}>📊 Tiến độ</button>
+                  <button className="popup-menu-item" onClick={() => { setMenuOpen(false); openPractice(); }}>🎯 Luyện tập theo chủ đề</button>
+                  <button className="popup-menu-item" onClick={() => { setMenuOpen(false); openDictation(); }}>🎧 Chép chính tả</button>
+                  <button className="popup-menu-item" onClick={() => { setMenuOpen(false); openFlashcards(); }}>📇 Sổ từ vựng</button>
+                  <div className="popup-menu-label">Trên trang này</div>
+                  <button className="popup-menu-item" onClick={() => { setMenuOpen(false); openZenMode(); }}>📖 Đọc tập trung (Zen)</button>
+                  <button className="popup-menu-item" onClick={() => { setMenuOpen(false); summarizePage(); }}>📄 Tóm tắt &amp; từ khoá</button>
+                  <button className="popup-menu-item" onClick={() => { setMenuOpen(false); toggleHighlight(); }}>🖍️ Tô sáng từ khó</button>
+                </div>
+              </>
+            )}
+          </div>
           <button className="header-btn" onClick={openOptions} title="Cài đặt">⚙️</button>
         </div>
       </header>
