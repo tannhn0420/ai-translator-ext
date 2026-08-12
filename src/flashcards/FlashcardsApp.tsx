@@ -8,7 +8,33 @@ import { reviewCard, getDueCards } from '../utils/srs';
 import { pickVoice, sortedVoices, isNaturalVoice } from '../utils/voice';
 import { fileToThumbnail, parseImport, toCSV, toTSV, toJSON, download, detectLang } from './lib';
 
-type Tab = 'review' | 'quiz' | 'manage' | 'add';
+type Tab = 'review' | 'quiz' | 'cloze' | 'manage' | 'add';
+
+interface ClozeQ {
+  card: VocabCard;
+  answer: string;
+  blanked: string;
+}
+
+function escapeReg(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Build fill-in-the-blank items from cards whose example sentence contains the term. */
+function buildCloze(deck: VocabCard[], n = 10): ClozeQ[] {
+  const items: ClozeQ[] = [];
+  for (const c of shuffle(deck)) {
+    const term = (c.term || '').trim();
+    const example = (c.example || '').trim();
+    if (!term || !example) continue;
+    const re = new RegExp(`\\b${escapeReg(term)}\\b`, 'i');
+    if (!re.test(example)) continue;
+    const blanked = example.replace(re, '_'.repeat(Math.max(4, term.length)));
+    items.push({ card: c, answer: term, blanked });
+    if (items.length >= n) break;
+  }
+  return items;
+}
 
 interface QuizQ {
   card: VocabCard;
@@ -102,6 +128,13 @@ export default function FlashcardsApp() {
   const [qIdx, setQIdx] = useState(0);
   const [qPicked, setQPicked] = useState<number | null>(null);
   const [qScore, setQScore] = useState(0);
+
+  // Cloze (fill in the blank)
+  const [cloze, setCloze] = useState<ClozeQ[]>([]);
+  const [cIdx, setCIdx] = useState(0);
+  const [cInput, setCInput] = useState('');
+  const [cResult, setCResult] = useState<'' | 'ok' | 'wrong' | 'revealed'>('');
+  const [cScore, setCScore] = useState(0);
 
   const [query, setQuery] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -217,6 +250,29 @@ export default function FlashcardsApp() {
   function nextQuiz() {
     setQPicked(null);
     setQIdx((i) => i + 1);
+  }
+
+  function startCloze() {
+    const pool = topicFilter ? deck.filter((c) => (c.topic || DEFAULT_TOPIC) === topicFilter) : deck;
+    setCloze(buildCloze(pool));
+    setCIdx(0);
+    setCInput('');
+    setCResult('');
+    setCScore(0);
+  }
+
+  function checkCloze() {
+    if (cResult) return;
+    const ok = cInput.trim().toLowerCase() === cloze[cIdx].answer.toLowerCase();
+    setCResult(ok ? 'ok' : 'wrong');
+    if (ok) setCScore((s) => s + 1);
+    speak(cloze[cIdx].answer, cloze[cIdx].card.lang);
+  }
+
+  function nextCloze() {
+    setCInput('');
+    setCResult('');
+    setCIdx((i) => i + 1);
   }
 
   async function saveTts(patch: Partial<{ ttsVoiceEn: string; ttsVoiceVi: string; ttsRate: number }>) {
@@ -451,6 +507,9 @@ export default function FlashcardsApp() {
         <button className={tab === 'quiz' ? 'active' : ''} onClick={() => { setQuiz([]); setTab('quiz'); }}>
           🧠 Trắc nghiệm
         </button>
+        <button className={tab === 'cloze' ? 'active' : ''} onClick={() => { setCloze([]); setTab('cloze'); }}>
+          🧩 Điền từ
+        </button>
         <button className={tab === 'manage' ? 'active' : ''} onClick={() => setTab('manage')}>
           📚 Danh sách ({stats.total})
         </button>
@@ -569,6 +628,58 @@ export default function FlashcardsApp() {
                   {qIdx + 1 < quiz.length ? 'Câu tiếp →' : 'Xem kết quả'}
                 </button>
               )}
+            </>
+          )}
+        </section>
+      ) : tab === 'cloze' ? (
+        <section className="fc-quiz">
+          {cloze.length === 0 ? (
+            <div className="fc-empty">
+              <div className="fc-empty-emoji">🧩</div>
+              <p>Điền từ còn thiếu vào câu ví dụ. Cần thẻ có <b>câu ví dụ</b> chứa chính từ đó.</p>
+              <select className="fc-select" value={topicFilter} onChange={(e) => setTopicFilter(e.target.value)} style={{ marginBottom: 12 }}>
+                <option value="">Mọi chủ đề</option>
+                {topics.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <button className="fc-flip" onClick={startCloze}>Bắt đầu</button>
+            </div>
+          ) : cIdx >= cloze.length ? (
+            <div className="fc-empty">
+              <div className="fc-empty-emoji">{cScore / cloze.length >= 0.8 ? '🏆' : '🎉'}</div>
+              <p>Kết quả: <b>{cScore}/{cloze.length}</b> ({Math.round((cScore / cloze.length) * 100)}%)</p>
+              <button className="fc-flip" onClick={startCloze}>Làm lại</button>
+            </div>
+          ) : (
+            <>
+              <div className="fc-progress">{cIdx + 1} / {cloze.length} · Điểm {cScore}</div>
+              <div className="fc-cloze-sent">{cloze[cIdx].blanked}</div>
+              <div className="fc-cloze-hint">💡 {cloze[cIdx].card.meaning}</div>
+              <input
+                className="fc-cloze-input"
+                value={cInput}
+                disabled={!!cResult}
+                placeholder="Điền từ còn thiếu…"
+                onChange={(e) => setCInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { if (cResult) nextCloze(); else checkCloze(); } }}
+                autoFocus
+              />
+              {cResult && (
+                <div className={`fc-cloze-feedback ${cResult === 'ok' ? 'ok' : 'wrong'}`}>
+                  {cResult === 'ok' ? '✓ Chính xác!' : `${cResult === 'revealed' ? '👁️' : '✗'} Đáp án: ${cloze[cIdx].answer}`}
+                  {cloze[cIdx].card.example && <div className="fc-cloze-full">“{cloze[cIdx].card.example}”</div>}
+                </div>
+              )}
+              <div className="fc-cloze-actions">
+                {!cResult ? (
+                  <>
+                    <button className="fc-flip" onClick={checkCloze} disabled={!cInput.trim()}>Kiểm tra</button>
+                    <button className="fc-skip" onClick={() => { setCResult('revealed'); speak(cloze[cIdx].answer, cloze[cIdx].card.lang); }}>👁️ Đáp án</button>
+                  </>
+                ) : (
+                  <button className="fc-flip" onClick={nextCloze}>{cIdx + 1 < cloze.length ? 'Câu tiếp →' : 'Xem kết quả'}</button>
+                )}
+                <button className="fc-skip" onClick={() => speak(cloze[cIdx].answer, cloze[cIdx].card.lang)} title="Nghe từ">🔊</button>
+              </div>
             </>
           )}
         </section>

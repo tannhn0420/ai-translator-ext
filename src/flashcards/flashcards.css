@@ -267,6 +267,39 @@ body {
 }
 .fc-quiz-opt.dim { opacity: 0.5; }
 
+/* Cloze */
+.fc-cloze-sent {
+  font-size: 20px;
+  line-height: 1.6;
+  color: var(--text);
+  text-align: center;
+  max-width: 520px;
+}
+.fc-cloze-hint { color: var(--muted); font-size: 14px; }
+.fc-cloze-input {
+  width: 100%;
+  max-width: 360px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 16px;
+  text-align: center;
+  outline: none;
+  font-family: inherit;
+}
+.fc-cloze-input:focus { border-color: var(--indigo); }
+.fc-cloze-feedback {
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+}
+.fc-cloze-feedback.ok { color: var(--emerald); }
+.fc-cloze-feedback.wrong { color: #ef4444; }
+.fc-cloze-full { color: var(--muted); font-size: 13px; font-weight: 400; font-style: italic; margin-top: 6px; }
+.fc-cloze-actions { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+
 .fc-ratings {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
