@@ -48,6 +48,7 @@ function OptionsApp() {
   const [reminderIntervalMin, setReminderIntervalMin] = useState(10);
   const [vocabAutoImage, setVocabAutoImage] = useState(true);
   const [writingAssistantEnabled, setWritingAssistantEnabled] = useState(true);
+  const [hoverTranslate, setHoverTranslate] = useState(false);
   const [highlightMinLen, setHighlightMinLen] = useState(7);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -97,6 +98,7 @@ function OptionsApp() {
         setReminderIntervalMin(s.reminderIntervalMin || 10);
         setVocabAutoImage(s.vocabAutoImage !== false);
         setWritingAssistantEnabled(s.writingAssistantEnabled !== false);
+        setHoverTranslate(s.hoverTranslate === true);
         setHighlightMinLen(typeof s.highlightMinLen === 'number' ? s.highlightMinLen : 7);
       }
     } catch {
@@ -784,6 +786,25 @@ function OptionsApp() {
                 onTouchEnd={() => saveField({ ttsRate })}
               />
               <p className="form-help">Kéo để chỉnh; thả ra để lưu.</p>
+            </div>
+
+            <h3 className="subsection-title">📖 Đọc</h3>
+            <div className="toggle-row">
+              <div className="toggle-info">
+                <span className="toggle-label">👆 Rê chuột dịch nhanh 1 từ</span>
+                <span className="toggle-desc">Dừng chuột trên một từ tiếng Anh ~0.5s → hiện nghĩa tiếng Việt + 🔊 (có cache, tốn ít token)</span>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={hoverTranslate}
+                  onChange={(e) => {
+                    setHoverTranslate(e.target.checked);
+                    saveField({ hoverTranslate: e.target.checked });
+                  }}
+                />
+                <span className="toggle-slider"></span>
+              </label>
             </div>
 
             <h3 className="subsection-title">✍️ Trợ lý viết</h3>

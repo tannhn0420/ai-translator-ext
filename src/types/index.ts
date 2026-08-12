@@ -183,6 +183,9 @@ export interface AppSettings {
   // Writing assistant
   writingAssistantEnabled: boolean; // show the ✍️ proofread button on editable fields
 
+  // Reading
+  hoverTranslate: boolean; // hover a word to see a quick Vietnamese gloss
+
   // Highlight hard words
   highlightMinLen: number; // minimum word length to consider "hard" (sensitivity)
 

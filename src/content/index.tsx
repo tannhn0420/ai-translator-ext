@@ -8,6 +8,7 @@ import { handleTranslatePage } from './pageTranslate/controller';
 import { translateSelection } from './pageTranslate/selection';
 import { initWritingAssistant } from './writing';
 import { initHighlight, toggleHighlight } from './highlight';
+import { initHoverGloss } from './hoverGloss';
 import { recognizeOnce, scoreSpeech, isSpeechRecognitionSupported } from '../practice/speech';
 import { reviewCard } from '../utils/srs';
 import { pickVoice } from '../utils/voice';
@@ -31,6 +32,7 @@ interface CachedSettings {
   reminderIntervalMin: number;
   vocabAutoImage: boolean;
   writingAssistantEnabled: boolean;
+  hoverTranslate: boolean;
   highlightMinLen: number;
 }
 
@@ -61,6 +63,7 @@ function initContentScript() {
     reminderIntervalMin: 10,
     vocabAutoImage: true,
     writingAssistantEnabled: true,
+    hoverTranslate: false,
     highlightMinLen: 7,
   };
   let reminderTimer: ReturnType<typeof setInterval> | null = null;
@@ -190,6 +193,7 @@ function initContentScript() {
   if (IS_TOP) maybeAutoTranslatePage();
   initWritingAssistant(() => cachedSettings.writingAssistantEnabled);
   if (IS_TOP) initHighlight((word, rect) => showTranslationBubble(rect, word, ''));
+  if (IS_TOP) initHoverGloss(() => cachedSettings.hoverTranslate);
 
   /**
    * Auto-translate the whole page on load if the current host is in the user's
@@ -242,6 +246,7 @@ function initContentScript() {
           reminderIntervalMin: response.data.reminderIntervalMin || 10,
           vocabAutoImage: response.data.vocabAutoImage !== false,
           writingAssistantEnabled: response.data.writingAssistantEnabled !== false,
+          hoverTranslate: response.data.hoverTranslate === true,
           highlightMinLen: response.data.highlightMinLen || 7,
         };
         if (IS_TOP) applySidebarSettings();
