@@ -325,6 +325,11 @@ function App() {
     window.close();
   };
 
+  const openProgress = () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/progress/progress.html') });
+    window.close();
+  };
+
   const toggleAutoTranslate = async () => {
     const newValue = !autoTranslate;
     setAutoTranslate(newValue);
@@ -375,6 +380,7 @@ function App() {
         </div>
         <div className="popup-header-actions">
           <button className="header-btn" onClick={toggleTheme} title="Giao diện sáng/tối">{theme === 'dark' ? '☀️' : '🌙'}</button>
+          <button className="header-btn" onClick={openProgress} title="Tiến độ học tập">📊</button>
           <button className="header-btn" onClick={openPractice} title="Luyện tập theo chủ đề">🎯</button>
           <button className="header-btn" onClick={openDictation} title="Chép chính tả (đoạn văn / phụ đề)">🎧</button>
           <button className="header-btn" onClick={openFlashcards} title="Sổ từ vựng">📇</button>

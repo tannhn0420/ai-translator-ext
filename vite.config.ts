@@ -22,6 +22,7 @@ export default defineConfig({
         flashcards: 'src/flashcards/flashcards.html',
         practice: 'src/practice/practice.html',
         dictation: 'src/dictation/dictation.html',
+        progress: 'src/progress/progress.html',
       },
     },
   },
