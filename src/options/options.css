@@ -185,6 +185,12 @@
   border-color: var(--border-focus);
 }
 
+/* Native dropdown list: force readable colours (default is light-grey on white). */
+.form-select option {
+  background: var(--bg-input, #1e2436);
+  color: var(--text-primary, #e7e9f3);
+}
+
 /* Toggle Switch */
 .toggle-row {
   display: flex;

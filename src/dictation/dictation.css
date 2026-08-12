@@ -155,6 +155,8 @@ body {
   font-family: inherit;
   cursor: pointer;
 }
+.dc-select option { background: #14142a; color: #e7e9f3; }
+:root[data-theme='light'] .dc-select option { background: #fff; color: #1e2436; }
 
 .dc-dim { color: var(--muted); font-weight: 400; font-size: 12px; }
 .dc-chips { display: flex; flex-wrap: wrap; gap: 7px; max-height: 168px; overflow-y: auto; }

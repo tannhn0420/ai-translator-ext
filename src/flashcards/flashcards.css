@@ -434,6 +434,8 @@ body {
   font-size: 13px;
   max-width: 200px;
 }
+.fc-select option { background: #14142a; color: #e7e9f3; }
+:root[data-theme='light'] .fc-select option { background: #fff; color: #1e2436; }
 .fc-rate {
   display: flex;
   align-items: center;
