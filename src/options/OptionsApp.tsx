@@ -5,6 +5,7 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import type { AppSettings, PageTranslateMode, Language } from '../types';
 import { PRESET_PROMPTS, DEFAULT_SYSTEM_PROMPT, DEFAULT_TRANSLATION_TEMPLATE } from '../utils/constants';
+import { pickVoice, sortedVoices, isNaturalVoice } from '../utils/voice';
 import './options.css';
 
 type Tab = 'api' | 'prompts' | 'language' | 'behavior' | 'appearance' | 'backup';
@@ -115,6 +116,18 @@ function OptionsApp() {
     } catch {
       showToast('❌ Lỗi khi lưu settings', 'error');
     }
+  };
+
+  const speakPreview = (lang: 'en' | 'vi') => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const text = lang === 'vi' ? 'Xin chào, đây là giọng đọc mẫu.' : 'Hello, this is a sample of the selected voice.';
+    const u = new SpeechSynthesisUtterance(text);
+    const v = pickVoice(voices, lang, lang === 'vi' ? ttsVoiceVi : ttsVoiceEn);
+    if (v) u.voice = v;
+    else u.lang = lang === 'vi' ? 'vi-VN' : 'en-US';
+    u.rate = ttsRate || 0.95;
+    window.speechSynthesis.speak(u);
   };
 
   const validateKey = async () => {
@@ -711,38 +724,52 @@ function OptionsApp() {
             </div>
 
             <h3 className="subsection-title">🔊 Giọng đọc (Text-to-Speech)</h3>
+            <p className="form-help" style={{ marginTop: 0 }}>
+              ⭐ = giọng neural/tự nhiên. Để <b>“Tự động”</b> để hệ thống chọn giọng tự nhiên nhất. Bấm <b>Nghe thử</b> để nghe.
+            </p>
             <div className="form-group">
               <label className="form-label">Giọng tiếng Anh</label>
-              <select
-                className="form-select"
-                value={ttsVoiceEn}
-                onChange={(e) => {
-                  setTtsVoiceEn(e.target.value);
-                  saveField({ ttsVoiceEn: e.target.value });
-                }}
-              >
-                <option value="">Mặc định hệ thống</option>
-                {voices.filter((v) => v.lang.toLowerCase().startsWith('en')).map((v) => (
-                  <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <select
+                  className="form-select"
+                  style={{ flex: 1 }}
+                  value={ttsVoiceEn}
+                  onChange={(e) => {
+                    setTtsVoiceEn(e.target.value);
+                    saveField({ ttsVoiceEn: e.target.value });
+                  }}
+                >
+                  <option value="">Tự động (giọng tự nhiên)</option>
+                  {sortedVoices(voices.filter((v) => v.lang.toLowerCase().startsWith('en')), 'en').map((v) => (
+                    <option key={v.voiceURI} value={v.voiceURI}>{isNaturalVoice(v) ? '⭐ ' : ''}{v.name} ({v.lang})</option>
+                  ))}
+                </select>
+                <button type="button" className="btn btn-secondary" onClick={() => speakPreview('en')}>🔊 Nghe thử</button>
+              </div>
             </div>
             <div className="form-group">
               <label className="form-label">Giọng tiếng Việt</label>
-              <select
-                className="form-select"
-                value={ttsVoiceVi}
-                onChange={(e) => {
-                  setTtsVoiceVi(e.target.value);
-                  saveField({ ttsVoiceVi: e.target.value });
-                }}
-              >
-                <option value="">Mặc định hệ thống</option>
-                {voices.filter((v) => v.lang.toLowerCase().startsWith('vi')).map((v) => (
-                  <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <select
+                  className="form-select"
+                  style={{ flex: 1 }}
+                  value={ttsVoiceVi}
+                  onChange={(e) => {
+                    setTtsVoiceVi(e.target.value);
+                    saveField({ ttsVoiceVi: e.target.value });
+                  }}
+                >
+                  <option value="">Tự động (giọng tự nhiên)</option>
+                  {sortedVoices(voices.filter((v) => v.lang.toLowerCase().startsWith('vi')), 'vi').map((v) => (
+                    <option key={v.voiceURI} value={v.voiceURI}>{isNaturalVoice(v) ? '⭐ ' : ''}{v.name} ({v.lang})</option>
+                  ))}
+                </select>
+                <button type="button" className="btn btn-secondary" onClick={() => speakPreview('vi')}>🔊 Nghe thử</button>
+              </div>
             </div>
+            {voices.filter((v) => v.lang.toLowerCase().startsWith('en')).length === 0 && (
+              <p className="form-help">Máy chưa có giọng tiếng Anh. Trên Windows: Settings → Time &amp; language → Speech → Manage voices → Add, chọn giọng <b>“Natural”</b>, rồi mở lại trang.</p>
+            )}
             <div className="form-group">
               <label className="form-label">Tốc độ đọc: {ttsRate.toFixed(2)}×</label>
               <input
