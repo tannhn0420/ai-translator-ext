@@ -1302,7 +1302,7 @@ function initContentScript() {
       </div>
       <div style="color:#6ee7b7;font-size:15px;line-height:1.4;">${escapeHtml(card.meaning)}</div>
       ${ipaTxt ? `<div style="color:#94a3b8;font-size:12px;margin-top:3px;">${escapeHtml(ipaTxt)}</div>` : ''}
-      <div class="rem-type" tabindex="0" title="Bấm rồi gõ"
+      <div class="rem-type" tabindex="0" title="Bấm rồi gõ · Enter = hiện đáp án / đóng"
         style="margin-top:10px;font-family:'Roboto Mono',ui-monospace,monospace;font-size:22px;letter-spacing:2px;white-space:pre-wrap;word-break:break-word;background:rgba(255,255,255,0.05);border:1px solid rgba(99,102,241,0.4);border-radius:8px;padding:10px 12px;outline:none;cursor:text;"></div>
       <div class="rem-ex" style="color:#94a3b8;font-size:12px;font-style:italic;margin-top:8px;display:none;"></div>
       <div style="display:flex;gap:8px;margin-top:12px;">
@@ -1352,8 +1352,16 @@ function initContentScript() {
     };
 
     typeEl.addEventListener('keydown', (e) => {
-      if (done) return;
       const k = e.key;
+      if (k === 'Enter') {
+        e.preventDefault();
+        if (done) { dismiss(); return; } // already correct → close
+        pos = term.length;               // otherwise reveal the answer
+        render();
+        finish();
+        return;
+      }
+      if (done) return;
       if (k === 'Backspace') {
         e.preventDefault();
         const start = skipAuto(0);
