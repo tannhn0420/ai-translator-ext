@@ -266,6 +266,20 @@ body {
   background: rgba(239, 68, 68, 0.18);
 }
 .fc-quiz-opt.dim { opacity: 0.5; }
+.fc-quiz-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.2);
+  color: var(--indigo, #6366f1);
+  font-size: 12px;
+  font-weight: 700;
+}
+.fc-kbd-hint { color: var(--muted); font-size: 12px; }
 
 /* Cloze */
 .fc-cloze-sent {

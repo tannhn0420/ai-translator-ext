@@ -3,6 +3,7 @@
 // ============================================
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { VocabCard, ReviewRating, Language } from '../types';
 import { reviewCard, getDueCards } from '../utils/srs';
 import { pickVoice, sortedVoices, isNaturalVoice } from '../utils/voice';
@@ -218,6 +219,25 @@ export default function FlashcardsApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewMode, topicFilter, tab, deck.length]);
 
+  // Quiz keyboard: 1–4 to answer, Enter to go to the next question.
+  useEffect(() => {
+    if (tab !== 'quiz' || quiz.length === 0 || qIdx >= quiz.length) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (qPicked === null) {
+        const n = parseInt(e.key, 10);
+        if (n >= 1 && n <= quiz[qIdx].options.length) { e.preventDefault(); pickQuiz(n - 1); }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        nextQuiz();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, quiz, qIdx, qPicked]);
+
   const current = session[idx];
 
   function speak(text: string, lang: Language) {
@@ -318,6 +338,13 @@ export default function FlashcardsApp() {
       await chrome.runtime.sendMessage({ type: 'UPDATE_VOCAB', payload: { card: updated } });
     } catch {
       /* ignore */
+    }
+  }
+
+  function onFormEnter(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void saveForm();
     }
   }
 
@@ -605,7 +632,7 @@ export default function FlashcardsApp() {
             </div>
           ) : (
             <>
-              <div className="fc-progress">{qIdx + 1} / {quiz.length} · Điểm {qScore}</div>
+              <div className="fc-progress">{qIdx + 1} / {quiz.length} · Điểm {qScore} · <span className="fc-kbd-hint">phím 1–4 chọn, Enter câu tiếp</span></div>
               <div className="fc-quiz-term">
                 {quiz[qIdx].card.term}
                 <button className="fc-play" title="Nghe" onClick={() => speak(quiz[qIdx].card.term, quiz[qIdx].card.lang)}>🔊</button>
@@ -618,7 +645,7 @@ export default function FlashcardsApp() {
                   const cls = answered ? (isCorrect ? 'correct' : i === qPicked ? 'wrong' : 'dim') : '';
                   return (
                     <button key={i} className={`fc-quiz-opt ${cls}`} disabled={answered} onClick={() => pickQuiz(i)}>
-                      {opt}
+                      <span className="fc-quiz-num">{i + 1}</span> {opt}
                     </button>
                   );
                 })}
@@ -737,18 +764,18 @@ export default function FlashcardsApp() {
         <section className="fc-form">
           <h2 className="fc-form-title">{form.id ? 'Sửa thẻ' : 'Tạo thẻ mới'}</h2>
           <label className="fc-field"><span>Từ / cụm từ *</span>
-            <input className="fc-input" value={form.term} onChange={(e) => setForm((f) => ({ ...f, term: e.target.value }))} />
+            <input className="fc-input" value={form.term} onChange={(e) => setForm((f) => ({ ...f, term: e.target.value }))} onKeyDown={onFormEnter} autoFocus />
           </label>
           <label className="fc-field"><span>Nghĩa *</span>
-            <input className="fc-input" value={form.meaning} onChange={(e) => setForm((f) => ({ ...f, meaning: e.target.value }))} />
+            <input className="fc-input" value={form.meaning} onChange={(e) => setForm((f) => ({ ...f, meaning: e.target.value }))} onKeyDown={onFormEnter} />
           </label>
           <div className="fc-field-row">
             <label className="fc-field"><span>IPA</span>
-              <input className="fc-input" value={form.ipa} onChange={(e) => setForm((f) => ({ ...f, ipa: e.target.value }))} />
+              <input className="fc-input" value={form.ipa} onChange={(e) => setForm((f) => ({ ...f, ipa: e.target.value }))} onKeyDown={onFormEnter} />
             </label>
             <label className="fc-field"><span>Chủ đề</span>
               <input className="fc-input" list="fc-topics" value={form.topic} placeholder={DEFAULT_TOPIC}
-                onChange={(e) => setForm((f) => ({ ...f, topic: e.target.value }))} />
+                onChange={(e) => setForm((f) => ({ ...f, topic: e.target.value }))} onKeyDown={onFormEnter} />
               <datalist id="fc-topics">{topics.map((t) => <option key={t} value={t} />)}</datalist>
             </label>
           </div>
