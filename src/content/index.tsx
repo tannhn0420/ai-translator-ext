@@ -1302,9 +1302,10 @@ function initContentScript() {
       </div>
       <div style="color:#6ee7b7;font-size:15px;line-height:1.4;">${escapeHtml(card.meaning)}</div>
       ${ipaTxt ? `<div style="color:#94a3b8;font-size:12px;margin-top:3px;">${escapeHtml(ipaTxt)}</div>` : ''}
-      <div class="rem-type" tabindex="0" title="Bấm rồi gõ · Enter = hiện đáp án / đóng"
+      <div class="rem-type" tabindex="0" title="Bấm rồi gõ · Enter = hiện đáp án"
         style="margin-top:10px;font-family:'Roboto Mono',ui-monospace,monospace;font-size:22px;letter-spacing:2px;white-space:pre-wrap;word-break:break-word;background:rgba(255,255,255,0.05);border:1px solid rgba(99,102,241,0.4);border-radius:8px;padding:10px 12px;outline:none;cursor:text;"></div>
-      <div class="rem-ex" style="color:#94a3b8;font-size:12px;font-style:italic;margin-top:8px;display:none;"></div>
+      <div class="rem-fb" style="font-weight:700;font-size:15px;margin-top:8px;display:none;"></div>
+      <div class="rem-ex" style="color:#94a3b8;font-size:12px;font-style:italic;margin-top:6px;display:none;"></div>
       <div style="display:flex;gap:8px;margin-top:12px;">
         <button class="rem-reveal" style="flex:1;padding:7px;border:1px solid rgba(99,102,241,0.4);border-radius:8px;background:transparent;color:#e2e8f0;font-size:13px;cursor:pointer;">👁️ Đáp án</button>
         <button class="rem-known" style="flex:1;padding:7px;border:none;border-radius:8px;background:rgba(16,185,129,0.9);color:#fff;font-size:13px;cursor:pointer;">✓ Đã thuộc</button>
@@ -1318,6 +1319,8 @@ function initContentScript() {
 
     const typeEl = el.querySelector('.rem-type') as HTMLElement;
     const exEl = el.querySelector('.rem-ex') as HTMLElement;
+    const fbEl = el.querySelector('.rem-fb') as HTMLElement;
+    let autoT: ReturnType<typeof setTimeout> | null = null;
     const isT = (c: string) => /[A-Za-z0-9]/.test(c);
     const skipAuto = (from: number) => { let i = from; while (i < term.length && !isT(term[i])) i++; return i; };
     let pos = skipAuto(0);
@@ -1335,30 +1338,36 @@ function initContentScript() {
     };
     render();
 
-    const dismiss = () => el.remove();
+    const dismiss = () => { if (autoT) clearTimeout(autoT); el.remove(); };
     const markReviewed = async () => {
       try {
         const updated = reviewCard(card, 'good', Date.now());
         await chrome.runtime.sendMessage({ type: 'UPDATE_VOCAB', payload: { card: updated } });
       } catch { /* ignore */ }
     };
-    const finish = () => {
+    const finish = (revealed = false) => {
       if (done) return;
       done = true;
-      typeEl.style.borderColor = 'rgba(16,185,129,0.7)';
+      typeEl.style.borderColor = revealed ? 'rgba(148,163,184,0.6)' : 'rgba(16,185,129,0.8)';
+      if (fbEl) {
+        fbEl.textContent = revealed ? `👁️ Đáp án: ${term}` : '✓ Chính xác! 🎉';
+        fbEl.style.color = revealed ? '#94a3b8' : '#6ee7b7';
+        fbEl.style.display = 'block';
+      }
       if (card.example && exEl) { exEl.textContent = `"${card.example}"`; exEl.style.display = 'block'; }
       speak(term, card.lang);
       void markReviewed();
+      // Show the confirmation for a moment, then close gently (kept open while hovered).
+      autoT = setTimeout(dismiss, revealed ? 5000 : 3200);
     };
+    // Don't auto-close while the user is reading / hovering the toast.
+    el.addEventListener('mouseenter', () => { if (autoT) { clearTimeout(autoT); autoT = null; } });
 
     typeEl.addEventListener('keydown', (e) => {
       const k = e.key;
       if (k === 'Enter') {
         e.preventDefault();
-        if (done) { dismiss(); return; } // already correct → close
-        pos = term.length;               // otherwise reveal the answer
-        render();
-        finish();
+        if (!done) { pos = term.length; render(); finish(true); } // reveal (Enter closes only via the gentle timer)
         return;
       }
       if (done) return;
@@ -1383,7 +1392,7 @@ function initContentScript() {
 
     el.querySelector('.rem-close')?.addEventListener('click', dismiss);
     el.querySelector('.rem-tts')?.addEventListener('click', () => speak(term, card.lang));
-    el.querySelector('.rem-reveal')?.addEventListener('click', () => { pos = term.length; render(); finish(); });
+    el.querySelector('.rem-reveal')?.addEventListener('click', () => { pos = term.length; render(); finish(true); });
     el.querySelector('.rem-practice')?.addEventListener('click', () => { dismiss(); chrome.runtime.sendMessage({ type: 'OPEN_PRACTICE' }).catch(() => {}); });
     el.querySelector('.rem-known')?.addEventListener('click', async () => { await markReviewed(); dismiss(); });
   }
