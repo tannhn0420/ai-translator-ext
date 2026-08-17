@@ -51,6 +51,7 @@ import {
   SUMMARIZE_TEMPLATE,
   ASK_SYSTEM_PROMPT,
   PASSAGE_SYSTEM_PROMPT,
+  COMPOSE_SYSTEM_PROMPT,
   INPLACE_TRANSLATION_TEMPLATE,
   CONTEXT_TRANSLATION_TEMPLATE,
   DICTIONARY_TEMPLATE,
@@ -239,6 +240,9 @@ async function handleMessage(message: ChromeMessage): Promise<unknown> {
 
     case 'GENERATE_PASSAGE':
       return await handleGeneratePassage(message as any);
+
+    case 'COMPOSE_REPLY':
+      return await handleCompose(message as any);
 
     case 'TRANSLATE_INPLACE':
       return await handleInplaceTranslate(message as any);
@@ -771,6 +775,42 @@ async function handleAsk(request: any): Promise<any> {
   }
   if (!raw.trim()) return { success: false, error: lastError?.message || 'Không trả lời được.' };
   return { success: true, data: { answer: raw.trim() } };
+}
+
+async function handleCompose(request: any): Promise<any> {
+  const settings = await getSettings();
+  const context: string = (request.payload?.context || '').toString().slice(0, 4000);
+  const intent: string = (request.payload?.intent || '').toString().slice(0, 1000);
+  const mode: string = (request.payload?.mode || 'reply').toString();
+  if (!context.trim()) return { success: false, error: 'Chưa có đoạn văn ngữ cảnh.' };
+
+  const providers = buildProviderList(settings);
+  if (!providers.some((p) => p.key)) {
+    return { success: false, error: 'Chưa cấu hình API Key hoặc Provider không hợp lệ.' };
+  }
+
+  const kind =
+    mode === 'comment' ? 'comment' : mode === 'email' ? 'formal email reply' : 'reply';
+  const userText =
+    `ORIGINAL TEXT:\n"""\n${context}\n"""\n\n` +
+    `INTENT (what the user wants to say): ${intent.trim() || '(none — write a suitable, polite ' + kind + ')'}\n\n` +
+    `Write the ${kind}.`;
+
+  let raw = '';
+  let lastError: Error | null = null;
+  for (const p of providers) {
+    if (!p.key) continue;
+    try {
+      await pace();
+      raw = await callProvider(p, userText, 'auto', 'en', COMPOSE_SYSTEM_PROMPT, '{text}', 1024);
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err as Error;
+    }
+  }
+  if (!raw.trim()) return { success: false, error: lastError?.message || 'Không soạn được phản hồi.' };
+  return { success: true, data: { text: raw.trim() } };
 }
 
 async function handleInplaceTranslate(request: any): Promise<any> {

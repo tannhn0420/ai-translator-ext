@@ -896,6 +896,97 @@
   border-color: rgba(99, 102, 241, 0.55);
   color: #fff;
 }
+
+/* Compose reply (context-aware) */
+.ai-cmp {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ai-cmp-ctx {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 3px solid rgba(99, 102, 241, 0.55);
+  border-radius: 6px;
+  padding: 6px 9px;
+  max-height: 76px;
+  overflow: auto;
+}
+.ai-cmp-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.ai-cmp-mode {
+  all: unset;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #c7d2fe;
+  border: 1px solid transparent;
+  font-family: Inter, system-ui, sans-serif;
+}
+.ai-cmp-mode:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+.ai-cmp-mode.on {
+  background: rgba(99, 102, 241, 0.32);
+  border-color: rgba(99, 102, 241, 0.55);
+  color: #fff;
+}
+.ai-cmp-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 44px;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 8px 10px;
+  outline: none;
+}
+.ai-cmp-input:focus {
+  border-color: rgba(99, 102, 241, 0.6);
+}
+.ai-cmp-input::placeholder {
+  color: #64748b;
+}
+.ai-cmp-go {
+  all: unset;
+  cursor: pointer;
+  text-align: center;
+  padding: 9px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: Inter, system-ui, sans-serif;
+}
+.ai-cmp-go:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.ai-cmp-go:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ai-cmp-hint {
+  font-size: 11px;
+  color: #64748b;
+  text-align: center;
+  margin-top: -2px;
+}
+.ai-cmp-result:empty {
+  display: none;
+}
 .ai-rw-level {
   display: inline-block;
   background: rgba(16, 185, 129, 0.2);

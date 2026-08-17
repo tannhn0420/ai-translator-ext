@@ -421,6 +421,7 @@ function initContentScript() {
       <div class="ai-tr-menu">
         <button class="ai-tr-opt" data-act="translate">🌐 Dịch</button>
         <button class="ai-tr-opt" data-act="rewrite">✨ Viết lại</button>
+        <button class="ai-tr-opt" data-act="compose">✉️ Soạn phản hồi</button>
         ${isEnglish ? '<button class="ai-tr-opt" data-act="practice">🎤 Luyện câu</button>' : ''}
       </div>
     `;
@@ -438,6 +439,7 @@ function initContentScript() {
         const act = (b as HTMLElement).dataset.act;
         removeIcon();
         if (act === 'rewrite') showRewriteBubble(rect, text);
+        else if (act === 'compose') showComposeBubble(rect, text);
         else if (act === 'practice') showPracticeBubble(rect, text);
         else showTranslationBubble(rect, text, context);
       }),
@@ -569,6 +571,87 @@ function initContentScript() {
       </div>
     `;
     wireActionBar(body);
+  }
+
+  const COMPOSE_MODES: { key: string; label: string }[] = [
+    { key: 'reply', label: '↩️ Trả lời' },
+    { key: 'comment', label: '💬 Bình luận' },
+    { key: 'email', label: '✉️ Email' },
+  ];
+
+  /** Compose a reply/comment/email that responds to the highlighted text.
+   *  The selection becomes the context; the user types their intent and AI writes the response. */
+  function showComposeBubble(rect: DOMRect, context: string) {
+    createBubble(rect, '✉️', 'Soạn phản hồi', '…');
+    const body = bubble?.querySelector('.ai-translator-bubble-body') as HTMLElement | null;
+    if (!body) return;
+
+    let mode = 'reply';
+    const preview = context.trim().replace(/\s+/g, ' ');
+    body.innerHTML = `
+      <div class="ai-cmp">
+        <div class="ai-cmp-ctx" title="Đoạn văn gốc — dùng làm ngữ cảnh cho AI">${escapeHtml(preview.slice(0, 320))}${preview.length > 320 ? '…' : ''}</div>
+        <div class="ai-cmp-modes">
+          ${COMPOSE_MODES.map(
+            (m) => `<button class="ai-cmp-mode${m.key === mode ? ' on' : ''}" data-mode="${m.key}">${m.label}</button>`,
+          ).join('')}
+        </div>
+        <textarea class="ai-cmp-input" rows="2" placeholder="Ý của bạn… (vd: trả lời đồng ý, đề nghị dời họp sang thứ Năm)"></textarea>
+        <button class="ai-cmp-go">✨ Soạn phản hồi</button>
+        <div class="ai-cmp-hint">Ctrl/⌘ + Enter để soạn</div>
+        <div class="ai-cmp-result"></div>
+      </div>
+    `;
+    const input = body.querySelector('.ai-cmp-input') as HTMLTextAreaElement;
+    const goBtn = body.querySelector('.ai-cmp-go') as HTMLButtonElement;
+    const resultEl = body.querySelector('.ai-cmp-result') as HTMLElement;
+
+    body.querySelectorAll('.ai-cmp-mode').forEach((b) =>
+      b.addEventListener('click', () => {
+        mode = (b as HTMLElement).dataset.mode as string;
+        body.querySelectorAll('.ai-cmp-mode').forEach((x) => x.classList.toggle('on', x === b));
+      }),
+    );
+
+    const run = () => {
+      const intent = input.value.trim();
+      goBtn.disabled = true;
+      resultEl.innerHTML = `<div class="ai-translator-bubble-loading"><div class="ai-translator-spinner"></div><span>Đang soạn...</span></div>`;
+      chrome.runtime
+        .sendMessage({ type: 'COMPOSE_REPLY', payload: { context, intent, mode } })
+        .then((res: { success?: boolean; data?: { text: string }; error?: string }) => {
+          goBtn.disabled = false;
+          if (!bubble || !resultEl.isConnected) return;
+          if (!res?.success || !res.data) {
+            resultEl.innerHTML = `<div class="ai-translator-bubble-error">⚠️ ${escapeHtml(res?.error || 'Không soạn được')}</div>`;
+            return;
+          }
+          const out = res.data.text;
+          resultEl.innerHTML = `
+            <div class="ai-translator-bubble-result-container">
+              <div class="ai-rw-corrected">${escapeHtml(out)}</div>
+              <div class="ai-action-bar">
+                <button class="ai-tts-btn" data-text="${escapeHtml(out)}" data-lang="${detectLang(out)}" title="Phát âm">🔊 Nghe</button>
+                <button class="ai-copy-all-btn" data-text="${escapeHtml(out)}" title="Copy">📋 Copy</button>
+              </div>
+            </div>
+          `;
+          wireActionBar(resultEl);
+        })
+        .catch(() => {
+          goBtn.disabled = false;
+          if (resultEl.isConnected) resultEl.innerHTML = `<div class="ai-translator-bubble-error">⚠️ Lỗi kết nối</div>`;
+        });
+    };
+
+    goBtn.addEventListener('click', run);
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+        ev.preventDefault();
+        run();
+      }
+    });
+    setTimeout(() => input.focus(), 30);
   }
 
   /** Practice a selected English sentence: pronunciation (speak → score) or dictation (listen → type). */
