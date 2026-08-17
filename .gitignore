@@ -25,3 +25,7 @@ dist-ssr
 
 # CodeGraph local index
 .codegraph/
+
+# build artifacts
+dist.7z
+*.7z
