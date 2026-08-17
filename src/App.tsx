@@ -17,6 +17,10 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [rewriteMode, setRewriteMode] = useState('natural');
+  const [rewriteOut, setRewriteOut] = useState('');
+  const [rewriteLoading, setRewriteLoading] = useState(false);
+  const [rewriteCopied, setRewriteCopied] = useState(false);
 
   // Settings state
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -331,6 +335,42 @@ function App() {
     window.close();
   };
 
+  const REWRITE_MODES: { key: string; label: string }[] = [
+    { key: 'natural', label: 'Tự nhiên' },
+    { key: 'correct', label: 'Sửa lỗi' },
+    { key: 'expand', label: 'Mở rộng' },
+    { key: 'simplify', label: 'Đơn giản' },
+    { key: 'formal', label: 'Trang trọng' },
+    { key: 'friendly', label: 'Thân thiện' },
+    { key: 'concise', label: 'Ngắn gọn' },
+    { key: 'academic', label: 'Học thuật' },
+    { key: 'ielts', label: 'IELTS' },
+  ];
+
+  const handleRewrite = async () => {
+    const text = inputText.trim();
+    if (!text) return;
+    setRewriteLoading(true);
+    setRewriteOut('');
+    setRewriteCopied(false);
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'PROOFREAD', payload: { text, mode: rewriteMode } });
+      if (res?.success && res.data) setRewriteOut(res.data.corrected || '(không có kết quả)');
+      else setRewriteOut('⚠️ ' + (res?.error || 'Không viết lại được.'));
+    } catch {
+      setRewriteOut('⚠️ Lỗi kết nối. Kiểm tra API key / reload extension.');
+    }
+    setRewriteLoading(false);
+  };
+
+  const copyRewrite = async () => {
+    try {
+      await navigator.clipboard.writeText(rewriteOut);
+      setRewriteCopied(true);
+      setTimeout(() => setRewriteCopied(false), 2000);
+    } catch { /* ignore */ }
+  };
+
   const toggleAutoTranslate = async () => {
     const newValue = !autoTranslate;
     setAutoTranslate(newValue);
@@ -474,6 +514,37 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* Section: rewrite the input */}
+        <section className="popup-section">
+          <div className="popup-section-label">✍️ Viết lại câu</div>
+          <div className="rewrite-row">
+            <select className="lang-select rewrite-mode" value={rewriteMode} onChange={(e) => setRewriteMode(e.target.value)}>
+              {REWRITE_MODES.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
+            <button
+              className={`rewrite-btn ${rewriteLoading ? 'loading' : ''}`}
+              onClick={handleRewrite}
+              disabled={!inputText.trim() || rewriteLoading || !hasApiKey}
+              title="Viết lại văn bản trong ô trên theo kiểu đã chọn"
+            >
+              {rewriteLoading ? (<><span className="spinner" /> …</>) : (<>✍️ Viết lại</>)}
+            </button>
+          </div>
+          {(rewriteLoading || rewriteOut) && (
+            <div className="output-card">
+              <div className="output-head">
+                <span className="output-label">Bản viết lại</span>
+                {rewriteOut && (
+                  <button className={`link-btn ${rewriteCopied ? 'copied' : ''}`} onClick={copyRewrite}>
+                    {rewriteCopied ? '✓ Đã copy' : 'Copy'}
+                  </button>
+                )}
+              </div>
+              <div className="output-text">{rewriteOut || 'Đang viết lại…'}</div>
+            </div>
+          )}
+        </section>
 
         {/* Section: whole page */}
         <section className="popup-section">

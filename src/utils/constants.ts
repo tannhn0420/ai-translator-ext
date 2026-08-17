@@ -175,6 +175,12 @@ export const WRITING_MODE_INSTRUCTION: Record<string, string> = {
     'Rewrite to IELTS Band 8.0+ quality: precise less-common vocabulary, a mix of complex structures, natural cohesion, near-zero errors — keep the meaning and length within ±20%.',
   simplify:
     'Rewrite in SIMPLER English for an intermediate learner: shorter sentences, common everyday words, no idioms — keep the original meaning (graded-reader style).',
+  expand:
+    'Expand and elaborate: develop the idea into a longer, richer version (2-4 sentences) with relevant detail, an example or reason, and smooth connectors — keep the original intent.',
+  friendly:
+    'Rewrite in a warm, friendly, conversational tone — natural everyday wording, contractions welcome, still clear and polite.',
+  academic:
+    'Rewrite in a formal academic register: precise vocabulary, objective tone, complex but clear structures, no contractions or slang.',
 };
 
 export const WRITING_TEMPLATE = `Task: {mode_instruction}

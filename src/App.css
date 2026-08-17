@@ -399,6 +399,31 @@
   cursor: not-allowed;
 }
 
+/* Rewrite row */
+.rewrite-row { display: flex; gap: 8px; }
+.rewrite-mode { flex: 0 0 auto; min-width: 120px; }
+.rewrite-btn {
+  all: unset;
+  cursor: pointer;
+  flex: 1;
+  box-sizing: border-box;
+  padding: 10px;
+  text-align: center;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  transition: filter var(--transition-fast), transform var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.rewrite-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.rewrite-btn:active:not(:disabled) { transform: translateY(1px); }
+.rewrite-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
 /* Segmented control (Replace / Bilingual) */
 .segmented {
   display: grid;

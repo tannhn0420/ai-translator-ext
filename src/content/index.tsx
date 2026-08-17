@@ -449,9 +449,12 @@ function initContentScript() {
   const REWRITE_MODES: { key: string; label: string }[] = [
     { key: 'natural', label: 'Tự nhiên' },
     { key: 'correct', label: 'Sửa lỗi' },
+    { key: 'expand', label: 'Mở rộng' },
     { key: 'simplify', label: 'Đơn giản' },
     { key: 'formal', label: 'Trang trọng' },
+    { key: 'friendly', label: 'Thân thiện' },
     { key: 'concise', label: 'Ngắn gọn' },
+    { key: 'academic', label: 'Học thuật' },
     { key: 'ielts', label: 'IELTS' },
   ];
 
