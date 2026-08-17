@@ -6,9 +6,11 @@ import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import type { AppSettings, PageTranslateMode, Language } from '../types';
 import { PRESET_PROMPTS, DEFAULT_SYSTEM_PROMPT, DEFAULT_TRANSLATION_TEMPLATE } from '../utils/constants';
 import { pickVoice, sortedVoices, isNaturalVoice } from '../utils/voice';
+import { getSession, lastSyncedAt, signIn, signOut, signUp, syncNow } from '../services/sync';
+import type { Session } from '@supabase/supabase-js';
 import './options.css';
 
-type Tab = 'api' | 'prompts' | 'language' | 'behavior' | 'appearance' | 'backup';
+type Tab = 'api' | 'prompts' | 'language' | 'behavior' | 'appearance' | 'sync' | 'backup';
 
 function OptionsApp() {
   const [activeTab, setActiveTab] = useState<Tab>('api');
@@ -52,6 +54,56 @@ function OptionsApp() {
   const [highlightMinLen, setHighlightMinLen] = useState(7);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync (Supabase, chung project với PWA ai-english-companion)
+  const [session, setSession] = useState<Session | null>(null);
+  const [syncEmail, setSyncEmail] = useState('');
+  const [syncPassword, setSyncPassword] = useState('');
+  const [syncMsg, setSyncMsg] = useState('');
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [lastSync, setLastSync] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    void getSession().then(async (s) => {
+      setSession(s);
+      if (s) setLastSync(await lastSyncedAt(s.user.id));
+    });
+  }, []);
+
+  const runSync = async () => {
+    setSyncBusy(true);
+    const r = await syncNow();
+    setSyncBusy(false);
+    if (r.status === 'ok') {
+      setSyncMsg(`✅ Đã đồng bộ (nhận ${r.pulled ?? 0}, gửi ${r.pushed ?? 0}). Mở lại tab Flashcards để thấy thay đổi.`);
+      const s = await getSession();
+      if (s) setLastSync(await lastSyncedAt(s.user.id));
+    } else if (r.status === 'error') {
+      setSyncMsg(`❌ Lỗi đồng bộ: ${r.message}`);
+    }
+  };
+
+  const doSignIn = async () => {
+    setSyncBusy(true);
+    setSyncMsg('');
+    const err = await signIn(syncEmail.trim(), syncPassword);
+    setSyncBusy(false);
+    if (err) { setSyncMsg(`❌ ${err}`); return; }
+    setSession(await getSession());
+    void runSync();
+  };
+
+  const doSignUp = async () => {
+    setSyncBusy(true);
+    setSyncMsg('');
+    const err = await signUp(syncEmail.trim(), syncPassword);
+    setSyncBusy(false);
+    if (err) { setSyncMsg(`❌ ${err}`); return; }
+    const s = await getSession();
+    setSession(s);
+    if (!s) setSyncMsg('📧 Kiểm tra email xác nhận rồi đăng nhập lại.');
+    else void runSync();
+  };
 
   useEffect(() => {
     loadSettings();
@@ -893,6 +945,76 @@ function OptionsApp() {
           </div>
         );
 
+      case 'sync':
+        return (
+          <div className="options-section">
+            <h2 className="section-title">☁️ Đồng bộ đám mây</h2>
+            <p className="section-desc">
+              Đồng bộ sổ từ vựng &amp; tiến độ với app điện thoại (AI English Companion) — dùng
+              chung tài khoản. Đăng nhập cùng email ở cả hai nơi.
+            </p>
+
+            {session ? (
+              <>
+                <div className="status-badge success">Đã đăng nhập: {session.user.email}</div>
+                <p className="form-help" style={{ marginTop: 8 }}>
+                  {lastSync ? `Lần đồng bộ cuối: ${new Date(lastSync).toLocaleString()}` : 'Chưa đồng bộ lần nào.'}
+                </p>
+                <div className="btn-row">
+                  <button className="btn btn-primary" onClick={runSync} disabled={syncBusy}>
+                    {syncBusy ? '⏳ Đang đồng bộ...' : '🔄 Đồng bộ ngay'}
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={async () => { await signOut(); setSession(null); }}
+                  >
+                    Đăng xuất
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input
+                    type="email"
+                    className="form-input"
+                    value={syncEmail}
+                    onChange={(e) => setSyncEmail(e.target.value)}
+                    placeholder="ban@example.com"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Mật khẩu (≥ 6 ký tự)</label>
+                  <input
+                    type="password"
+                    className="form-input"
+                    value={syncPassword}
+                    onChange={(e) => setSyncPassword(e.target.value)}
+                  />
+                </div>
+                <div className="btn-row">
+                  <button
+                    className="btn btn-primary"
+                    onClick={doSignIn}
+                    disabled={syncBusy || !syncEmail.trim() || syncPassword.length < 6}
+                  >
+                    Đăng nhập
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={doSignUp}
+                    disabled={syncBusy || !syncEmail.trim() || syncPassword.length < 6}
+                  >
+                    Tạo tài khoản
+                  </button>
+                </div>
+              </>
+            )}
+            {syncMsg && <p className="form-help" style={{ marginTop: 12 }}>{syncMsg}</p>}
+          </div>
+        );
+
       case 'backup':
         return (
           <div className="options-section">
@@ -988,6 +1110,12 @@ function OptionsApp() {
           onClick={() => setActiveTab('appearance')}
         >
           🎨 Giao diện &amp; Học
+        </button>
+        <button
+          className={`sidebar-nav-item ${activeTab === 'sync' ? 'active' : ''}`}
+          onClick={() => setActiveTab('sync')}
+        >
+          ☁️ Đồng bộ
         </button>
         <button
           className={`sidebar-nav-item ${activeTab === 'backup' ? 'active' : ''}`}
