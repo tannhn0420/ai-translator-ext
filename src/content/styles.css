@@ -1064,6 +1064,17 @@
   transform: translateY(-1px);
 }
 
+/* Compose: "Chèn vào ô nhập" is the primary action on a result */
+.ai-cmp-insert {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  font-weight: 600 !important;
+}
+.ai-cmp-insert:hover {
+  filter: brightness(1.08);
+}
+
 .ai-lang-actions {
   display: flex;
   align-items: center;

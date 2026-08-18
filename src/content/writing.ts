@@ -46,7 +46,8 @@ function esc(s: string): string {
 function isEditableField(el: Element | null): el is HTMLElement {
   if (!el || !(el instanceof HTMLElement)) return false;
   if (el.id && el.id.startsWith('ai-translator')) return false;
-  if (el.closest('#ai-wa-btn, #ai-wa-panel')) return false;
+  // Never treat our own extension UI (writing panel, selection bubble/icon, sidebar) as a page field.
+  if (el.closest('#ai-wa-btn, #ai-wa-panel, #ai-translator-bubble, #ai-translator-icon, #ai-translator-sidebar')) return false;
   const tag = el.tagName;
   if (tag === 'TEXTAREA') {
     const t = el as HTMLTextAreaElement;
@@ -121,6 +122,56 @@ function writeText(el: HTMLElement, text: string): void {
   }
 }
 
+/** Insert `text` at the caret of the last-focused page field (reply/comment box, textarea…).
+ *  Inserts at the caret when there is one, otherwise appends. Returns false if no field is known
+ *  or it has left the DOM — the caller should fall back (e.g. copy to clipboard). */
+export function insertIntoActiveField(text: string): boolean {
+  const el = lastEditable;
+  if (!el || !el.isConnected) return false;
+  el.focus();
+
+  if (isTextInput(el)) {
+    const input = el as HTMLTextAreaElement | HTMLInputElement;
+    const cur = input.value;
+    const start = input.selectionStart ?? cur.length;
+    const end = input.selectionEnd ?? cur.length;
+    // Add a blank line before appended text if the box already has content and the caret is at its end.
+    const joiner = cur && start === cur.length && !cur.endsWith('\n') ? '\n\n' : '';
+    const next = cur.slice(0, start) + joiner + text + cur.slice(end);
+    writeText(el, next);
+    const caret = start + joiner.length + text.length;
+    try {
+      input.setSelectionRange(caret, caret);
+    } catch {
+      /* some input types disallow selection ranges */
+    }
+    return true;
+  }
+
+  // contenteditable / rich editor host
+  const win = winOf(el);
+  const doc = el.ownerDocument;
+  let ok = false;
+  try {
+    const sel = win.getSelection();
+    const caretInField =
+      sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer);
+    if (!caretInField) {
+      const range = doc.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false); // to end
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+    ok = doc.execCommand('insertText', false, text);
+  } catch {
+    ok = false;
+  }
+  if (!ok) el.innerText = (el.innerText ? el.innerText + '\n\n' : '') + text;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
+}
+
 // --- Multi-document wiring (top frame + same-origin iframes) ---
 
 const attachedDocs = new WeakSet<Document>();
@@ -185,6 +236,8 @@ function scanFrames(): void {
 
 let getEnabled: () => boolean = () => true;
 let currentField: HTMLElement | null = null;
+/** Last page editable that had focus — target for programmatic insertion (survives focusout). */
+let lastEditable: HTMLElement | null = null;
 let currentDoc: Document = document;
 let btn: HTMLButtonElement | null = null;
 let btnDoc: Document | null = null;
@@ -195,8 +248,11 @@ let curMode: WritingMode = 'correct';
 const closeCleanups: Array<() => void> = [];
 
 function onFocusIn(e: FocusEvent): void {
-  if (!getEnabled()) return;
   const target = e.target as Element | null;
+  // Always remember the last real page field (even when the ✍️ button is disabled) so other
+  // features — e.g. "Chèn vào ô nhập" on a composed reply — can insert into it later.
+  if (isEditableField(target)) lastEditable = resolveField(target as HTMLElement);
+  if (!getEnabled()) return;
   if (!isEditableField(target)) return;
   currentField = resolveField(target as HTMLElement);
   currentDoc = currentField.ownerDocument;

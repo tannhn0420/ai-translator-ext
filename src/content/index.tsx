@@ -6,7 +6,7 @@
 import type { TranslateResponse, PageTranslateMode, Language, VocabCard, ProofreadResult, PageSummary } from '../types';
 import { handleTranslatePage } from './pageTranslate/controller';
 import { translateSelection } from './pageTranslate/selection';
-import { initWritingAssistant } from './writing';
+import { initWritingAssistant, insertIntoActiveField } from './writing';
 import { initHighlight, toggleHighlight } from './highlight';
 import { initHoverGloss } from './hoverGloss';
 import { recognizeOnce, scoreSpeech, isSpeechRecognitionSupported } from '../practice/speech';
@@ -631,12 +631,25 @@ function initContentScript() {
             <div class="ai-translator-bubble-result-container">
               <div class="ai-rw-corrected">${escapeHtml(out)}</div>
               <div class="ai-action-bar">
+                <button class="ai-cmp-insert" title="Điền vào ô soạn thảo đang mở">↩️ Chèn vào ô nhập</button>
                 <button class="ai-tts-btn" data-text="${escapeHtml(out)}" data-lang="${detectLang(out)}" title="Phát âm">🔊 Nghe</button>
                 <button class="ai-copy-all-btn" data-text="${escapeHtml(out)}" title="Copy">📋 Copy</button>
               </div>
             </div>
           `;
           wireActionBar(resultEl);
+          const insertBtn = resultEl.querySelector('.ai-cmp-insert') as HTMLButtonElement | null;
+          insertBtn?.addEventListener('click', () => {
+            const done = insertIntoActiveField(out);
+            if (done) {
+              insertBtn.textContent = '✓ Đã chèn';
+              setTimeout(removeBubble, 700);
+            } else {
+              // No editable field on the page — copy instead so the reply isn't lost.
+              navigator.clipboard?.writeText(out).catch(() => {});
+              insertBtn.textContent = '📋 Đã copy (không thấy ô nhập)';
+            }
+          });
         })
         .catch(() => {
           goBtn.disabled = false;

@@ -21,6 +21,12 @@ function App() {
   const [rewriteOut, setRewriteOut] = useState('');
   const [rewriteLoading, setRewriteLoading] = useState(false);
   const [rewriteCopied, setRewriteCopied] = useState(false);
+  const [composeCtx, setComposeCtx] = useState('');
+  const [composeIntent, setComposeIntent] = useState('');
+  const [composeMode, setComposeMode] = useState('reply');
+  const [composeOut, setComposeOut] = useState('');
+  const [composeLoading, setComposeLoading] = useState(false);
+  const [composeCopied, setComposeCopied] = useState(false);
 
   // Settings state
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -371,6 +377,39 @@ function App() {
     } catch { /* ignore */ }
   };
 
+  const COMPOSE_MODES: { key: string; label: string }[] = [
+    { key: 'reply', label: '↩️ Trả lời' },
+    { key: 'comment', label: '💬 Bình luận' },
+    { key: 'email', label: '✉️ Email' },
+  ];
+
+  const handleCompose = async () => {
+    const context = composeCtx.trim();
+    if (!context) return;
+    setComposeLoading(true);
+    setComposeOut('');
+    setComposeCopied(false);
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'COMPOSE_REPLY',
+        payload: { context, intent: composeIntent.trim(), mode: composeMode },
+      });
+      if (res?.success && res.data) setComposeOut(res.data.text || '(không có kết quả)');
+      else setComposeOut('⚠️ ' + (res?.error || 'Không soạn được.'));
+    } catch {
+      setComposeOut('⚠️ Lỗi kết nối. Kiểm tra API key / reload extension.');
+    }
+    setComposeLoading(false);
+  };
+
+  const copyCompose = async () => {
+    try {
+      await navigator.clipboard.writeText(composeOut);
+      setComposeCopied(true);
+      setTimeout(() => setComposeCopied(false), 2000);
+    } catch { /* ignore */ }
+  };
+
   const toggleAutoTranslate = async () => {
     const newValue = !autoTranslate;
     setAutoTranslate(newValue);
@@ -542,6 +581,51 @@ function App() {
                 )}
               </div>
               <div className="output-text">{rewriteOut || 'Đang viết lại…'}</div>
+            </div>
+          )}
+        </section>
+
+        {/* Section: compose a reply using pasted context */}
+        <section className="popup-section">
+          <div className="popup-section-label">✉️ Soạn phản hồi</div>
+          <textarea
+            className="compose-ctx"
+            placeholder="Dán đoạn / email cần trả lời vào đây (ngữ cảnh)…"
+            value={composeCtx}
+            onChange={(e) => setComposeCtx(e.target.value)}
+            rows={3}
+          />
+          <input
+            className="compose-intent"
+            placeholder="Ý của bạn… (vd: đồng ý, đề nghị dời họp sang thứ Năm)"
+            value={composeIntent}
+            onChange={(e) => setComposeIntent(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleCompose(); }}
+          />
+          <div className="rewrite-row">
+            <select className="lang-select rewrite-mode" value={composeMode} onChange={(e) => setComposeMode(e.target.value)}>
+              {COMPOSE_MODES.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
+            <button
+              className={`rewrite-btn ${composeLoading ? 'loading' : ''}`}
+              onClick={handleCompose}
+              disabled={!composeCtx.trim() || composeLoading || !hasApiKey}
+              title="Soạn phản hồi cho đoạn văn bản dán ở trên"
+            >
+              {composeLoading ? (<><span className="spinner" /> …</>) : (<>✨ Soạn</>)}
+            </button>
+          </div>
+          {(composeLoading || composeOut) && (
+            <div className="output-card">
+              <div className="output-head">
+                <span className="output-label">Phản hồi</span>
+                {composeOut && (
+                  <button className={`link-btn ${composeCopied ? 'copied' : ''}`} onClick={copyCompose}>
+                    {composeCopied ? '✓ Đã copy' : 'Copy'}
+                  </button>
+                )}
+              </div>
+              <div className="output-text">{composeOut || 'Đang soạn…'}</div>
             </div>
           )}
         </section>
